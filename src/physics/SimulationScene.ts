@@ -2,6 +2,7 @@ import Matter from 'matter-js'
 import type { ObjectDefinition, ObjectKind } from '../objects/definitions'
 import { ballPalette, makeDefinition } from '../objects/definitions'
 import { createPhysicsBody } from './bodyFactories'
+import { arenaPath } from '../arena/geometry'
 
 const { Bodies, Body, Composite, Engine, Events } = Matter
 
@@ -20,6 +21,7 @@ export class SimulationScene {
   readonly objects: SceneObject[] = []
   settings: PhysicsSettings = { gravity: 1, restitution: 0.82, speed: 1 }
   private readonly walls: Matter.Body[] = []
+  private arenaWallsAdded = false
   private readonly animated: AnimatedBody[] = []
   private nextId = 1
   private elapsed = 0
@@ -98,11 +100,25 @@ export class SimulationScene {
 
   createDemo(ballCount = 24) {
     this.clearObjects()
+    // Keep the base scene's rectangular safety bounds available for callers
+    // that use SimulationScene as a small physics sandbox. The production
+    // demo additionally installs the neon bowl path below, so every object
+    // created by the editor participates in the reference arena.
+    this.addArenaWalls()
     const count = Math.min(MAX_BALLS, Math.max(1, Math.floor(ballCount)))
+    // Keep the original moving obstacle in the demo. Apart from preserving
+    // the public demo contract (and existing tests), it gives the first mode
+    // a simple example of a dynamic arena element. The neon boundary itself
+    // remains a static Matter path below the object layer.
     this.create('box', SCENE_WIDTH / 2, 315, {
-      id: `platform-${this.nextId++}`, label: 'Движущаяся платформа', width: 112, height: 10,
-      color: 0x364563, isStatic: true, restitution: 0.8,
-      motion: { type: 'oscillate-x', amplitude: 52, period: 3.8, phase: 0 },
+      id: `platform-${this.nextId++}`,
+      label: 'Движущаяся платформа',
+      width: 106,
+      height: 9,
+      color: 0x20263d,
+      isStatic: true,
+      restitution: 0.8,
+      motion: { type: 'oscillate-x', amplitude: 43, period: 3.8, phase: 0 },
     })
     for (let index = 0; index < count; index += 1) {
       const radius = 10 + ((index * 7) % 8)
@@ -110,10 +126,11 @@ export class SimulationScene {
         label: `Шар ${index + 1}`, color: ballPalette[index % ballPalette.length], radius,
         restitution: this.settings.restitution, density: 0.0018 + (index % 3) * 0.0003,
       })
-      const col = index % 5
-      const row = Math.floor(index / 5)
-      const x = 72 + col * 54 + (row % 2) * 13
-      const y = 54 + row * 38
+      // The first objects form the recognizable drop column. Remaining
+      // objects are staged inside the bowl so the arena is lively on reset.
+      const inDropColumn = index < 9
+      const x = inDropColumn ? SCENE_WIDTH / 2 + ((index % 2) ? 1 : -1) : 180 + Math.cos(index * 2.7) * (45 + (index % 3) * 21)
+      const y = inDropColumn ? 28 + index * 31 : 190 + (Math.sin(index * 1.7) * 0.5 + 0.5) * 170
       const entry = this.addObject(definition, x, y)
       if (entry) Body.setVelocity(entry.body, { x: Math.sin(index * 1.8) * 1.2, y: (index % 3) * 0.3 })
     }
@@ -136,6 +153,7 @@ export class SimulationScene {
         body.restitution = this.settings.restitution
       }
     }
+    for (const wall of this.walls) wall.restitution = this.settings.restitution
   }
 
   updateObject(id: string, patch: Partial<ObjectDefinition>) {
@@ -196,6 +214,10 @@ export class SimulationScene {
   }
 
   private addWalls() {
+    // Invisible safety bounds keep the base physics scene finite. The curved
+    // arena path is installed separately for the editor demo in
+    // addArenaWalls(), while these bounds remain useful for headless callers
+    // and legacy physics scenarios.
     const thickness = 28
     this.walls.push(
       Bodies.rectangle(-thickness / 2, SCENE_HEIGHT / 2, thickness, SCENE_HEIGHT + thickness * 2, { isStatic: true, label: 'wall' }),
@@ -204,6 +226,32 @@ export class SimulationScene {
       Bodies.rectangle(SCENE_WIDTH / 2, SCENE_HEIGHT + thickness / 2, SCENE_WIDTH + thickness * 2, thickness, { isStatic: true, label: 'wall' }),
     )
     Composite.add(this.engine.world, this.walls)
+  }
+
+  private addArenaWalls() {
+    if (this.arenaWallsAdded) return
+    this.arenaWallsAdded = true
+    const thickness = 10
+    // Each short rectangle is a tangent segment. Slight overlap between
+    // neighboring segments prevents Matter bodies from leaking through the
+    // sampled circular boundary while keeping the collision shape stable.
+    const arenaWalls: Matter.Body[] = []
+    for (let index = 1; index < arenaPath.length; index += 1) {
+      const start = arenaPath[index - 1]!
+      const end = arenaPath[index]!
+      const dx = end.x - start.x
+      const dy = end.y - start.y
+      const length = Math.max(1, Math.hypot(dx, dy)) + 7
+      arenaWalls.push(Bodies.rectangle((start.x + end.x) / 2, (start.y + end.y) / 2, length, thickness, {
+        isStatic: true,
+        label: 'wall',
+        angle: Math.atan2(dy, dx),
+        friction: 0.01,
+        restitution: this.settings.restitution,
+      }))
+    }
+    this.walls.push(...arenaWalls)
+    Composite.add(this.engine.world, arenaWalls)
   }
 
   private wallProxy(): SceneObject {
