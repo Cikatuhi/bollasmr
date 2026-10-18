@@ -1,15 +1,4 @@
-export type CollisionSoundKind = 'circle' | 'polygon' | 'image' | 'box' | 'wall' | (string & {})
-
-type Tone = { frequency: number; duration: number; type: OscillatorType }
 type MergeSoundKey = `${string}:${number}`
-
-const TONES: Partial<Record<CollisionSoundKind, Tone>> = {
-  circle: { frequency: 330, duration: 0.08, type: 'sine' },
-  polygon: { frequency: 220, duration: 0.11, type: 'triangle' },
-  image: { frequency: 280, duration: 0.1, type: 'sine' },
-  box: { frequency: 150, duration: 0.13, type: 'square' },
-  wall: { frequency: 120, duration: 0.08, type: 'sawtooth' },
-}
 
 export class AudioEngine {
   private context?: AudioContext
@@ -17,8 +6,6 @@ export class AudioEngine {
   private enabled = true
   private volume = 0.32
   private activeSources = 0
-  private lastSoundAt = 0
-  private readonly userBuffers = new Map<CollisionSoundKind, AudioBuffer>()
   private readonly mergeBuffers = new Map<MergeSoundKey, AudioBuffer>()
   private readonly mergeVolumes = new Map<MergeSoundKey, number>()
 
@@ -40,11 +27,6 @@ export class AudioEngine {
       this.master.connect(this.context.destination)
     }
     if (this.context.state === 'suspended') await this.context.resume()
-  }
-
-  async loadUserAudio(file: File, kind: CollisionSoundKind = 'circle') {
-    await this.unlock()
-    this.userBuffers.set(kind, await this.context!.decodeAudioData(await file.arrayBuffer()))
   }
 
   /** Store a dedicated sample for a collection's level -> level+1 transition. */
@@ -80,48 +62,10 @@ export class AudioEngine {
     if (!buffer) return
     try { await this.unlock() } catch { return }
     if (this.context?.state !== 'running' || !this.master) return
-    this.startBuffer(buffer, impact, this.mergeVolumes.get(key) ?? 1, false)
-  }
-
-  async test(kind: CollisionSoundKind = 'circle') {
-    await this.play(kind, 1)
-  }
-
-  async play(kind: CollisionSoundKind, impact = 1) {
-    if (!this.enabled || this.activeSources >= 5) return
-    const now = performance.now()
-    if (now - this.lastSoundAt < 28) return
-    this.lastSoundAt = now
-    try { await this.unlock() } catch { return }
-    const context = this.context!
-    if (context.state !== 'running') return
-    const master = this.master!
-    this.activeSources += 1
-    const gain = context.createGain()
-    gain.gain.value = Math.min(0.9, 0.08 + Math.min(impact, 12) / 18)
-    gain.connect(master)
-    const userBuffer = this.userBuffers.get(kind)
-    if (userBuffer) {
-      this.activeSources -= 1
-      gain.disconnect()
-      this.startBuffer(userBuffer, impact, 1, true)
-      return
-    }
-    const tone = TONES[kind] ?? TONES.box!
-    const oscillator = context.createOscillator()
-    oscillator.type = tone.type
-    oscillator.frequency.value = tone.frequency + Math.min(impact, 10) * 12
-    oscillator.connect(gain)
-    const start = context.currentTime
-    gain.gain.setValueAtTime(gain.gain.value, start)
-    gain.gain.exponentialRampToValueAtTime(0.001, start + tone.duration)
-    oscillator.onended = () => { this.activeSources = Math.max(0, this.activeSources - 1); gain.disconnect() }
-    oscillator.start(start)
-    oscillator.stop(start + tone.duration)
+    this.startBuffer(buffer, impact, this.mergeVolumes.get(key) ?? 1)
   }
 
   dispose() {
-    this.userBuffers.clear()
     this.mergeBuffers.clear()
     this.mergeVolumes.clear()
     if (this.context) void this.context.close()
@@ -130,10 +74,10 @@ export class AudioEngine {
     this.activeSources = 0
   }
 
-  private startBuffer(buffer: AudioBuffer, impact: number, gainScale: number, alreadyCounted = false) {
+  private startBuffer(buffer: AudioBuffer, impact: number, gainScale: number) {
     if (!this.context || !this.master || this.activeSources >= 5) return
     const context = this.context
-    if (!alreadyCounted) this.activeSources += 1
+    this.activeSources += 1
     const gain = context.createGain()
     gain.gain.value = Math.min(0.9, (0.08 + Math.min(impact, 12) / 18) * gainScale)
     gain.connect(this.master)

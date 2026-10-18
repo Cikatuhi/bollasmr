@@ -2,6 +2,7 @@
  * Durable storage for user-authored merge collections. Binary assets are stored
  * as Blobs in IndexedDB (never as base64 strings in localStorage).
  */
+import { isImageCollisionGeometry, type ImageCollisionGeometry } from '../objects/imageCollisionGeometry'
 
 export type CollectionLevel = {
   id: string
@@ -9,6 +10,8 @@ export type CollectionLevel = {
   name: string
   image: Blob | null
   imageName?: string
+  /** Alpha-derived Matter geometry; absent on records created by older builds. */
+  imageGeometry?: ImageCollisionGeometry
   size: number
   mass: number
   mergeSound: Blob | null
@@ -87,6 +90,7 @@ export function validateCollection(value: unknown): UserCollection | null {
       name: candidate.name.trim(),
       image: candidate.image,
       ...(candidate.imageName ? { imageName: candidate.imageName } : {}),
+        ...(isImageCollisionGeometry(candidate.imageGeometry) ? { imageGeometry: candidate.imageGeometry } : {}),
       size: candidate.size as number,
       mass: candidate.mass as number,
       mergeSound: candidate.mergeSound,

@@ -5,6 +5,7 @@ import {
   validateCollection,
   type UserCollection,
 } from './persistence'
+import { imageCollisionGeometryFromAlpha } from '../objects/imageCollisionGeometry'
 
 function collection(overrides: Partial<UserCollection> = {}): UserCollection {
   return {
@@ -27,6 +28,13 @@ describe('collection persistence model', () => {
     expect(result?.levels.map((level) => level.level)).toEqual([1, 2])
     expect(result?.levels[1].image).toBe(input.levels[0].image)
     expect(result?.levels[1].mergeSoundName).toBe('merge.mp3')
+  })
+
+  it('persists validated alpha-derived PNG physics geometry', () => {
+    const geometry = imageCollisionGeometryFromAlpha(2, 2, 2, 2, new Uint8Array([255, 0, 255, 0]))
+    const input = collection({ levels: [{ ...collection().levels[0]!, imageGeometry: geometry }] })
+    const result = validateCollection(input)
+    expect(result?.levels[0]?.imageGeometry).toEqual(geometry)
   })
 
   it.each([

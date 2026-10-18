@@ -3,6 +3,11 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // Keep HMR reliable when the workspace is edited by external tools or
+    // hosted on a filesystem where native change notifications are missed.
+    watch: { usePolling: true, interval: 500 },
+  },
   build: {
     chunkSizeWarningLimit: 520,
     rollupOptions: {

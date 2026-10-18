@@ -1,9 +1,19 @@
 export type ArenaPoint = { x: number; y: number }
 
 /** Shared geometry for the vertical merge arena. Coordinates are in scene units. */
-export const ARENA_CENTER = { x: 180, y: 310 }
+// The inlet continues through the top edge of the preview. There is no visible
+// emitter or separate spawn chamber; objects enter from above the frame. The
+// bowl sits high enough to leave a clean lower safe area for short-form video
+// captions and platform controls.
+// Negative offset raises the bowl and preserves a generous caption-safe area
+// below it in vertical short-form video previews.
+export const ARENA_VERTICAL_OFFSET = -48
+export const ARENA_CENTER = { x: 180, y: 310 + ARENA_VERTICAL_OFFSET }
 export const ARENA_RADIUS = 160
-export const ARENA_NECK = { left: 130, right: 230, top: -18, shoulderY: 104 }
+export const ARENA_NECK = { left: 130, right: 230, top: -8, shoulderY: 104 + ARENA_VERTICAL_OFFSET }
+export const ARENA_WALL_THICKNESS = 10
+/** Maximum image diameter that leaves a small safety margin in the chute. */
+export const ARENA_MAX_ENTRY_DIAMETER = ARENA_NECK.right - ARENA_NECK.left - ARENA_WALL_THICKNESS * 2
 
 const lerp = (a: ArenaPoint, b: ArenaPoint, t: number): ArenaPoint => ({
   x: a.x + (b.x - a.x) * t,
@@ -18,10 +28,9 @@ const cubic = (a: ArenaPoint, b: ArenaPoint, c: ArenaPoint, d: ArenaPoint, t: nu
 }
 
 /**
- * Open path used by both Matter and Pixi. It starts at the top of the left
- * chute, follows the left shoulder and the lower circular bowl, then exits
- * through the right chute. There is intentionally no top cap: objects enter
- * the arena from above.
+ * Open path used by both Matter and Pixi. It starts above the visible top edge,
+ * follows the inlet, shoulders, and lower bowl, then exits above the right edge.
+ * There is intentionally no top cap: objects enter the arena from above.
  */
 export function createArenaPath(): ArenaPoint[] {
   const points: ArenaPoint[] = [{ x: ARENA_NECK.left, y: ARENA_NECK.top }, { x: ARENA_NECK.left, y: ARENA_NECK.shoulderY }]
@@ -31,7 +40,7 @@ export function createArenaPath(): ArenaPoint[] {
     y: ARENA_CENTER.y + Math.sin((-146 * Math.PI) / 180) * ARENA_RADIUS,
   }
   for (let i = 1; i <= 10; i += 1) {
-    points.push(cubic(leftStart, { x: 110, y: 111 }, { x: 58, y: 145 }, leftEnd, i / 10))
+    points.push(cubic(leftStart, { x: 110, y: 111 + ARENA_VERTICAL_OFFSET }, { x: 58, y: 145 + ARENA_VERTICAL_OFFSET }, leftEnd, i / 10))
   }
 
   // Clockwise in screen coordinates, through the bottom of the bowl.
@@ -46,7 +55,7 @@ export function createArenaPath(): ArenaPoint[] {
   const rightStart = points[points.length - 1]!
   const rightEnd = { x: ARENA_NECK.right, y: ARENA_NECK.shoulderY }
   for (let i = 1; i <= 10; i += 1) {
-    points.push(cubic(rightStart, { x: 302, y: 145 }, { x: 250, y: 111 }, rightEnd, i / 10))
+    points.push(cubic(rightStart, { x: 302, y: 145 + ARENA_VERTICAL_OFFSET }, { x: 250, y: 111 + ARENA_VERTICAL_OFFSET }, rightEnd, i / 10))
   }
   points.push({ x: ARENA_NECK.right, y: ARENA_NECK.top })
   return points

@@ -61,6 +61,8 @@ describe('MergeSystem', () => {
     expect(scene.engine.world.bodies).not.toContain(second.body)
     expect(scene.engine.world.bodies).toContain(scene.objects[0]!.body)
     expect((scene.objects[0]!.definition as MergeDefinition).level).toBe(2)
+    expect(scene.objects[0]!.body.position.x).toBeCloseTo(155)
+    expect(scene.objects[0]!.body.position.y).toBeCloseTo(180)
     scene.destroy()
   })
 

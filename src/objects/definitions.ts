@@ -1,3 +1,5 @@
+import type { ImageCollisionGeometry } from './imageCollisionGeometry'
+
 /** Add custom kind keys with module augmentation when extending the object registry. */
 export interface ObjectKindMap {
   circle: unknown
@@ -26,6 +28,8 @@ export type ObjectDefinition = {
   width?: number
   height?: number
   imageSrc?: string
+  /** Collision shape derived from the uploaded PNG's alpha mask. */
+  imageGeometry?: ImageCollisionGeometry
   isStatic?: boolean
   density?: number
   mass?: number
@@ -38,11 +42,14 @@ export type ObjectDefinition = {
 
 export type ObjectTemplate = Omit<ObjectDefinition, 'id'>
 
+/** Near-inelastic default keeps crowded PNG piles from visibly ricocheting. */
+export const DEFAULT_RESTITUTION = 0.02
+
 export const objectTemplates: Partial<Record<ObjectKind, ObjectTemplate>> = {
-  circle: { kind: 'circle', visual: 'circle', label: 'Шар', color: 0x8e7cff, radius: 16, density: 0.002, restitution: 0.82 },
-  polygon: { kind: 'polygon', visual: 'polygon', label: 'Треугольник', color: 0xffa263, radius: 22, sides: 3, density: 0.002, restitution: 0.58 },
-  image: { kind: 'image', visual: 'image', label: 'Изображение', color: 0xffffff, radius: 24, density: 0.002, restitution: 0.45 },
-  box: { kind: 'box', visual: 'box', label: 'Платформа', color: 0x34435b, width: 100, height: 12, density: 0.002, restitution: 0.5 },
+  circle: { kind: 'circle', visual: 'circle', label: 'Шар', color: 0x8e7cff, radius: 16, density: 0.002, restitution: DEFAULT_RESTITUTION },
+  polygon: { kind: 'polygon', visual: 'polygon', label: 'Треугольник', color: 0xffa263, radius: 22, sides: 3, density: 0.002, restitution: DEFAULT_RESTITUTION },
+  image: { kind: 'image', visual: 'image', label: 'Изображение', color: 0xffffff, radius: 24, density: 0.002, restitution: DEFAULT_RESTITUTION },
+  box: { kind: 'box', visual: 'box', label: 'Платформа', color: 0x34435b, width: 100, height: 12, density: 0.002, restitution: DEFAULT_RESTITUTION },
 }
 
 export const ballPalette = [0x8e7cff, 0xff7693, 0x5ee1c0, 0xffb86b, 0x65b8ff, 0xe4e75d, 0xff8fdb, 0x78db75]

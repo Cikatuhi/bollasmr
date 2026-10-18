@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, CSSProperties, ReactNode } from 'react'
-import { AudioEngine, type CollisionSoundKind } from './audio/AudioEngine'
+import type { CSSProperties, ReactNode } from 'react'
+import { AudioEngine } from './audio/AudioEngine'
 import SimulationViewport, { type SceneController } from './components/SimulationViewport'
 import CollectionEditor from './components/CollectionEditor'
 import { createCollectionStore, type CollectionLevel, type CollectionStore, type UserCollection } from './collections/persistence'
-import type { ObjectDefinition, ObjectKind } from './objects/definitions'
-import { MAX_BALLS } from './physics/SimulationScene'
+import { DEFAULT_RESTITUTION, type ObjectDefinition } from './objects/definitions'
+import { createImageCollisionGeometry, MAX_COLLISION_PARTS, type ImageCollisionGeometry } from './objects/imageCollisionGeometry'
+import { MAX_OBJECTS } from './physics/SimulationScene'
 
 const pretty = (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)
 
@@ -43,32 +44,51 @@ export default function App() {
   const [controller, setController] = useState<SceneController | null>(null)
   const [running, setRunning] = useState(true)
   const [gravity, setGravity] = useState(1)
-  const [restitution, setRestitution] = useState(0.82)
+  const [restitution, setRestitution] = useState(DEFAULT_RESTITUTION)
   const [speed, setSpeed] = useState(1)
-  const [ballCount, setBallCount] = useState(24)
   const [volume, setVolume] = useState(0.32)
   const [soundEnabled, setSoundEnabled] = useState(true)
-  const [soundKind, setSoundKind] = useState<CollisionSoundKind>('circle')
   const [selected, setSelected] = useState<ObjectDefinition | null>(null)
-  const [objectCount, setObjectCount] = useState(25)
+  const [objectCount, setObjectCount] = useState(0)
   const [layerItems, setLayerItems] = useState<ObjectDefinition[]>([])
   const [inspectorTab, setInspectorTab] = useState<'settings' | 'layers'>('settings')
   const [collections, setCollections] = useState<UserCollection[]>([])
   const [selectedCollectionId, setSelectedCollectionId] = useState<string>()
+  const [collectionsLoaded, setCollectionsLoaded] = useState(false)
   const collectionStoreRef = useRef<CollectionStore | null>(null)
-  const uploadRef = useRef<HTMLInputElement>(null)
+  const hydratedCollectionRef = useRef<string | null>(null)
 
   const makeId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
   useEffect(() => {
     const store = createCollectionStore()
     collectionStoreRef.current = store
-    void store.list().then((items) => {
-      setCollections(items)
-      setSelectedCollectionId(items[0]?.id)
-      for (const collection of items) for (const level of collection.levels) {
+    void store.list().then(async (items) => {
+      // Upgrade records created before alpha-derived physics shapes existed.
+      // Geometry is small JSON data; the PNG itself stays as a Blob in IndexedDB.
+      const recovered = await Promise.all(items.map(async (collection) => {
+        let changed = false
+        const levels = await Promise.all(collection.levels.map(async (level) => {
+          if (!level.image || (level.imageGeometry && level.imageGeometry.parts.length <= MAX_COLLISION_PARTS)) return level
+          try {
+            const imageGeometry = await createImageCollisionGeometry(level.image)
+            changed = true
+            return { ...level, imageGeometry }
+          } catch (error) {
+            console.error(`Не удалось обновить физическую оболочку PNG уровня «${level.name}»:`, error)
+            return level
+          }
+        }))
+        const next = changed ? { ...collection, levels, updatedAt: Date.now() } : collection
+        if (changed) await store.save(next).catch((error) => console.error('Не удалось сохранить восстановленную форму PNG:', error))
+        return next
+      }))
+      setCollections(recovered)
+      setSelectedCollectionId(recovered[0]?.id)
+      setCollectionsLoaded(true)
+      for (const collection of recovered) for (const level of collection.levels) {
         if (level.mergeSound) void sound.loadMergeSound(collection.id, level.level, level.mergeSound, level.mergeSoundVolume).catch(() => undefined)
       }
-    }).catch((error) => { console.error('Не удалось загрузить коллекции:', error); window.alert('Не удалось загрузить локальные коллекции.') })
+    }).catch((error) => { console.error('Не удалось загрузить коллекции:', error); setCollectionsLoaded(true); window.alert('Не удалось загрузить локальные коллекции.') })
     return () => { store.close?.(); collectionStoreRef.current = null }
   }, [sound])
 
@@ -88,28 +108,16 @@ export default function App() {
     setObjectCount(objects.length)
     setSelected((current) => current && objects.some((item) => item.id === current.id) ? current : null)
   }, [controller])
+  // Keep the live Matter scene aligned with the controls after initial mount
+  // and Vite Fast Refresh. Otherwise React can show the new calmer defaults
+  // while a preserved SimulationScene instance still uses its old settings.
+  useEffect(() => {
+    controller?.setSettings({ gravity, restitution, speed })
+  }, [controller, gravity, restitution, speed])
   useEffect(() => () => {
     sound.dispose()
   }, [sound])
   const applySettings = (next: Partial<{ gravity: number; restitution: number; speed: number }>) => controller?.setSettings(next)
-
-  const updateBallCount = (value: number) => {
-    setBallCount(value)
-    controller?.reset(value)
-    setSelected(null)
-    setObjectCount(value + 1)
-    setLayerItems(controller?.getObjects().map((item) => ({ ...item.definition })) ?? [])
-  }
-
-  const addObject = (kind: ObjectKind, overrides: Partial<ObjectDefinition> = {}) => {
-    const item = controller?.addObject(kind, overrides)
-    if (item) {
-      setSelected({ ...item.definition })
-      setObjectCount((count) => Math.min(count + 1, 150))
-      setLayerItems(controller?.getObjects().map((entry) => ({ ...entry.definition })) ?? [])
-    }
-    return item
-  }
 
   const updateSelected = (changes: Partial<ObjectDefinition>) => {
     if (!selected) return
@@ -124,35 +132,11 @@ export default function App() {
     controller?.setRunning(next)
   }
 
-  const resetScene = () => {
-    controller?.reset(ballCount)
-    setSelected(null)
-    setObjectCount(ballCount + 1)
-    setLayerItems(controller?.getObjects().map((item) => ({ ...item.definition })) ?? [])
-  }
-
   const clearScene = () => {
     controller?.removeAll()
     setSelected(null)
     setObjectCount(0)
     setLayerItems([])
-  }
-
-  const handleImage = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file || !file.type.startsWith('image/')) return
-    const src = URL.createObjectURL(file)
-    const item = addObject('image', { imageSrc: src, label: file.name.slice(0, 28), color: 0xffffff, radius: 28 })
-    if (!item) URL.revokeObjectURL(src)
-  }
-
-  const handleAudio = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    try { await sound.loadUserAudio(file, soundKind) }
-    catch (error) { console.error('Не удалось загрузить аудио:', error); window.alert('Не удалось прочитать этот аудиофайл.') }
   }
 
   const changeSoundEnabled = (enabled: boolean) => {
@@ -178,6 +162,7 @@ export default function App() {
   }
   const deleteCollection = (id: string) => {
     const next = collections.filter((item) => item.id !== id)
+    controller?.removeCollection(id)
     setCollections(next)
     setSelectedCollectionId((selected) => selected === id ? next[0]?.id : selected)
     void collectionStoreRef.current?.delete(id).catch((error) => console.error(error))
@@ -186,18 +171,49 @@ export default function App() {
     const level = Math.max(0, ...collection.levels.map((item) => item.level)) + 1
     return { ...collection, levels: [...collection.levels, { id: makeId(), level, name: `Уровень ${level}`, image: null, size: 48, mass: 1, mergeSound: null, mergeSoundVolume: 1 }] }
   })
-  const deleteLevel = (id: string, levelId: string) => commitCollection(id, (collection) => collection.levels.length <= 1 ? collection : ({ ...collection, levels: collection.levels.filter((item) => item.id !== levelId) }))
+  const deleteLevel = (id: string, levelId: string) => {
+    const level = collections.find((item) => item.id === id)?.levels.find((item) => item.id === levelId)
+    if (level) controller?.removeCollectionLevel(id, level.level)
+    commitCollection(id, (collection) => collection.levels.length <= 1 ? collection : ({ ...collection, levels: collection.levels.filter((item) => item.id !== levelId) }))
+    syncSceneState()
+  }
   const updateLevel = (id: string, levelId: string, patch: Partial<CollectionLevel>) => {
     const level = collections.find((item) => item.id === id)?.levels.find((item) => item.id === levelId)
     if (level && patch.mergeSoundVolume !== undefined) sound.setMergeSoundVolume(id, level.level, patch.mergeSoundVolume)
     commitCollection(id, (collection) => ({ ...collection, levels: collection.levels.map((item) => item.id === levelId ? { ...item, ...patch } : item) }))
   }
-  const uploadCollectionImage = (id: string, levelId: string, file: File) => {
-    if (file.type !== 'image/png') { window.alert('Для уровня нужен PNG с прозрачным фоном.'); return }
+  const uploadCollectionImage = async (id: string, levelId: string, file: File) => {
+    if (file.type !== 'image/png' && !file.name.toLowerCase().endsWith('.png')) { window.alert('Для уровня нужен PNG-файл.'); return }
     if (file.size > 12 * 1024 * 1024) { window.alert('PNG слишком большой (максимум 12 МБ).'); return }
-    commitCollection(id, (collection) => ({ ...collection, levels: collection.levels.map((level) => level.id === levelId ? { ...level, image: file, imageName: file.name } : level) }))
+    let imageGeometry: ImageCollisionGeometry
+    try {
+      imageGeometry = await createImageCollisionGeometry(file)
+    } catch (error) {
+      console.error('Не удалось подготовить PNG для физической симуляции:', error)
+      const message = error instanceof Error && error.message.includes('прозрачный')
+        ? error.message
+        : 'Не удалось открыть этот PNG или построить по нему физическую оболочку. Проверьте файл и попробуйте сохранить его заново.'
+      window.alert(message)
+      return
+    }
+    const collection = collections.find((item) => item.id === id)
+    const level = collection?.levels.find((item) => item.id === levelId)
+    if (!collection || !level) return
+    commitCollection(id, (current) => ({ ...current, levels: current.levels.map((item) => item.id === levelId ? { ...item, image: file, imageName: file.name, imageGeometry } : item) }))
+    // Replacing an image replaces its current scene instances too, so an old
+    // texture can never remain visible under the new filename.
+    controller?.removeCollectionLevel(id, level.level)
+    const imageSrc = URL.createObjectURL(file)
+    const item = await controller?.addDefinition({ id: `user-${makeId()}`, kind: 'image', visual: 'image', label: level.name, color: 0xffffff, radius: level.size / 2, mass: level.mass, restitution, imageSrc, imageGeometry, collectionId: id, level: level.level })
+    if (!item) URL.revokeObjectURL(imageSrc)
+    syncSceneState()
   }
-  const removeCollectionImage = (id: string, levelId: string) => commitCollection(id, (collection) => ({ ...collection, levels: collection.levels.map((level) => level.id === levelId ? { ...level, image: null, imageName: undefined } : level) }))
+  const removeCollectionImage = (id: string, levelId: string) => {
+    const level = collections.find((item) => item.id === id)?.levels.find((item) => item.id === levelId)
+    if (level) controller?.removeCollectionLevel(id, level.level)
+    commitCollection(id, (collection) => ({ ...collection, levels: collection.levels.map((item) => item.id === levelId ? { ...item, image: null, imageName: undefined, imageGeometry: undefined } : item) }))
+    syncSceneState()
+  }
   const uploadCollectionSound = (id: string, levelId: string, file: File) => {
     if (!file.type.startsWith('audio/')) { window.alert('Выберите аудиофайл.'); return }
     if (file.size > 20 * 1024 * 1024) { window.alert('Аудиофайл слишком большой (максимум 20 МБ).'); return }
@@ -214,19 +230,50 @@ export default function App() {
     sound.removeMergeSound(id, level.level)
     commitCollection(id, (collection) => ({ ...collection, levels: collection.levels.map((item) => item.id === levelId ? { ...item, mergeSound: null, mergeSoundName: undefined } : item) }))
   }
-  const addCollectionLevelToScene = (collection: UserCollection, level: CollectionLevel) => {
-    if (!level.image) return
+  const makeLevelDefinition = (collection: UserCollection, level: CollectionLevel, imageSrc: string): ObjectDefinition => ({
+    id: `user-${makeId()}`, kind: 'image', visual: 'image', label: level.name, color: 0xffffff,
+    radius: level.size / 2, mass: level.mass, restitution, imageSrc,
+    imageGeometry: level.imageGeometry,
+    collectionId: collection.id, level: level.level,
+  })
+  const definitionsForCollection = (collection?: UserCollection) => collection
+    ? collection.levels.filter((level) => level.image).sort((a, b) => a.level - b.level).slice(0, MAX_OBJECTS)
+      .map((level) => makeLevelDefinition(collection, level, URL.createObjectURL(level.image!)))
+    : []
+
+  const addCollectionLevelToScene = async (collection: UserCollection, level: CollectionLevel) => {
+    if (!level.image || !controller) return
     const imageSrc = URL.createObjectURL(level.image)
-    const item = controller?.addDefinition({ id: `user-${makeId()}`, kind: 'image', visual: 'image', label: level.name, color: 0xffffff, radius: level.size / 2, mass: level.mass, restitution, imageSrc, collectionId: collection.id, level: level.level })
+    const item = await controller.addDefinition(makeLevelDefinition(collection, level, imageSrc))
     if (!item) URL.revokeObjectURL(imageSrc)
     syncSceneState()
   }
+
+  const resetScene = () => {
+    const collection = collections.find((item) => item.id === selectedCollectionId)
+    const definitions = definitionsForCollection(collection)
+    if (controller) void controller.reset(definitions)
+    else definitions.forEach((definition) => { if (definition.imageSrc) URL.revokeObjectURL(definition.imageSrc) })
+    setSelected(null)
+    syncSceneState()
+  }
+
+  useEffect(() => {
+    if (!controller || !collectionsLoaded) return
+    if (hydratedCollectionRef.current === (selectedCollectionId ?? null)) return
+    hydratedCollectionRef.current = selectedCollectionId ?? null
+    void controller.reset(definitionsForCollection(collections.find((item) => item.id === selectedCollectionId)))
+    setSelected(null)
+    syncSceneState()
+  }, [controller, collectionsLoaded, selectedCollectionId, collections, syncSceneState])
+
+  const selectedCollection = collections.find((item) => item.id === selectedCollectionId)
 
   return <main className="editor-app">
     <header className="topbar">
       <div className="brand"><div className="brand-mark"><span /><span /><span /></div><div className="brand-name">ball<span>studio</span><small>PHYSICS PLAYGROUND</small></div></div>
       <div className="topbar-divider" />
-      <div className="document-title"><span className="live-dot" /><span>Отскок · демо-сцена</span><span className="save-pill">Локально</span></div>
+      <div className="document-title"><span className="live-dot" /><span>PNG-объекты · 9:16</span><span className="save-pill">Локально</span></div>
       <div className="topbar-actions">
         <div className="transport-group">
           <button className={`transport-button primary ${running ? '' : 'is-paused'}`} onClick={toggleRunning} disabled={!controller} aria-label={running ? 'Пауза' : 'Запуск'}><Icon name={running ? 'pause' : 'play'} size={17} /><span>{running ? 'Пауза' : 'Запуск'}</span></button>
@@ -241,41 +288,38 @@ export default function App() {
     <div className="editor-layout">
       <aside className="left-panel panel">
         <div className="panel-heading"><span>ПРОЕКТ</span><button className="quiet-icon" title="Новый проект" onClick={resetScene}><Icon name="plus" size={15} /></button></div>
-        <div className="project-card"><div className="project-thumb"><span className="thumb-orbit" /><span className="thumb-ball pink" /><span className="thumb-ball violet" /><span className="thumb-ball mint" /></div><div><strong>Прыгающие шары</strong><span>Демо-сцена · 9:16</span></div><span className="more-dots">···</span></div>
+        <div className="project-card"><div className="project-thumb"><span className="thumb-orbit" /><span className="thumb-ball pink" /><span className="thumb-ball violet" /><span className="thumb-ball mint" /></div><div><strong>{selectedCollection?.name ?? 'Моя сцена'}</strong><span>Твои PNG · 9:16</span></div><span className="more-dots">···</span></div>
 
         <div className="section-label">РЕЖИМЫ</div>
         <nav className="mode-list" aria-label="Режимы симуляции">
-          <button className="mode-item active"><span className="mode-icon active-mode"><Icon name="ball" /></span><span><strong>Отскок</strong><small>Физика шаров</small></span><span className="mode-arrow">⌄</span></button>
+          <button className="mode-item active"><span className="mode-icon active-mode"><Icon name="image" /></span><span><strong>Слияние</strong><small>Твои PNG-объекты</small></span><span className="mode-arrow">⌄</span></button>
           <button className="mode-item planned" title="Скоро"><span className="mode-icon"><Icon name="layers" /></span><span><strong>Спираль</strong><small>В разработке</small></span><span className="soon-tag">Скоро</span></button>
           <button className="mode-item planned" title="Скоро"><span className="mode-icon"><Icon name="polygon" /></span><span><strong>Лабиринт</strong><small>В разработке</small></span><span className="soon-tag">Скоро</span></button>
         </nav>
 
         <div className="section-label object-section-heading"><span>ОБЪЕКТЫ</span><span className="count-badge">{objectCount}</span></div>
-        <div className="object-tools">
-          <button className="object-tool" onClick={() => addObject('circle')}><span className="tool-icon ball-tool"><Icon name="ball" /></span><span><strong>Шар</strong><small>Круглый объект</small></span><span className="tool-plus"><Icon name="plus" size={15} /></span></button>
-          <button className="object-tool" onClick={() => addObject('polygon')}><span className="tool-icon polygon-tool"><Icon name="polygon" /></span><span><strong>Многоугольник</strong><small>Фигура с оболочкой</small></span><span className="tool-plus"><Icon name="plus" size={15} /></span></button>
-          <button className="object-tool" onClick={() => addObject('box', { label: 'Статичная платформа', isStatic: true, width: 104, height: 12 })}><span className="tool-icon platform-tool"><Icon name="platform" /></span><span><strong>Препятствие</strong><small>Статичная платформа</small></span><span className="tool-plus"><Icon name="plus" size={15} /></span></button>
-          <button className="object-tool" onClick={() => uploadRef.current?.click()}><span className="tool-icon image-tool"><Icon name="image" /></span><span><strong>Изображение</strong><small>Своя физическая форма</small></span><span className="tool-plus"><Icon name="plus" size={15} /></span></button>
-          <input ref={uploadRef} className="visually-hidden" type="file" accept="image/*" onChange={handleImage} />
+        <div className="object-tools user-image-tools">
+          {selectedCollection?.levels.filter((level) => level.image).sort((a, b) => a.level - b.level).map((level) => <button className="object-tool" key={level.id} onClick={() => addCollectionLevelToScene(selectedCollection, level)} title={`Добавить ещё один экземпляр: ${level.name}`}><span className="tool-icon image-tool"><Icon name="image" /></span><span><strong>{level.name}</strong><small>Уровень {level.level} · добавить копию</small></span><span className="tool-plus"><Icon name="plus" size={15} /></span></button>)}
+          {!selectedCollection?.levels.some((level) => level.image) && <div className="user-images-empty">Загрузи PNG в разделе «Коллекции объектов». После загрузки объект начнёт падать сверху через вход арены.</div>}
         </div>
 
         <div className="left-panel-footer"><div className="help-dot">?</div><div><strong>BallStudio 0.1</strong><span>Создавай. Запускай. Залипай.</span></div><button className="quiet-icon" title="Справка"><span>↗</span></button></div>
       </aside>
 
       <section className="workspace">
-        <div className="workspace-toolbar"><div className="breadcrumb"><span>Сцена</span><span className="crumb-slash">/</span><strong>Отскок</strong></div><div className="view-tools"><span className="scene-size"><span className="portrait-icon" /> 9:16</span><span className="toolbar-separator" /><span className="zoom-value">100%</span><button className="zoom-button" title="Масштаб по размеру экрана">⊡</button><button className="zoom-button" title="Очистить сцену" onClick={clearScene}><Icon name="close" size={15} /></button></div></div>
+        <div className="workspace-toolbar"><div className="breadcrumb"><span>Сцена</span><span className="crumb-slash">/</span><strong>Мои PNG</strong></div><div className="view-tools"><span className="scene-size"><span className="portrait-icon" /> 9:16</span><span className="toolbar-separator" /><span className="zoom-value">100%</span><button className="zoom-button" title="Масштаб по размеру экрана">⊡</button><button className="zoom-button" title="Очистить сцену" onClick={clearScene}><Icon name="close" size={15} /></button></div></div>
         <div className="canvas-workspace">
           <div className="stage-wrap"><div className="stage-glow" /><SimulationViewport sound={sound} collections={collections} onController={registerController} onSelectObject={registerSelection} onSceneChanged={syncSceneState} /><div className="stage-top-label"><span className="stage-live" /> LIVE PREVIEW</div><div className="stage-bottom-label"><span>360 × 640</span><span>·</span><span>9:16</span></div></div>
-          <div className="canvas-caption"><span className="caption-icon"><Icon name="sparkle" size={15} /></span><span>Добавляй объекты слева <i>·</i> перетаскивай их внутри сцены</span></div>
+          <div className="canvas-caption"><span className="caption-icon"><Icon name="sparkle" size={15} /></span><span>В сцене только загруженные PNG <i>·</i> одинаковые уровни сливаются</span></div>
         </div>
         <div className="timeline-bar"><button className={`timeline-play ${running ? '' : 'paused'}`} onClick={toggleRunning} aria-label={running ? 'Пауза' : 'Запуск'}><Icon name={running ? 'pause' : 'play'} size={13} /></button><div className="timeline-track"><div className="timeline-fill" /><div className="timeline-scrubber" /></div><span className="timeline-time">00:08 <span>/</span> ∞</span><span className="timeline-label">СИМУЛЯЦИЯ В РЕАЛЬНОМ ВРЕМЕНИ</span></div>
       </section>
 
       <aside className="right-panel panel">
         <div className="inspector-tabs"><button className={`inspector-tab ${inspectorTab === 'settings' ? 'active' : ''}`} onClick={() => setInspectorTab('settings')}>Настройки</button><button className={`inspector-tab ${inspectorTab === 'layers' ? 'active' : ''}`} onClick={() => setInspectorTab('layers')}>Слои <span className="count-badge small-count">{objectCount}</span></button><button className="inspector-menu" onClick={resetScene}>···</button></div>
-        {inspectorTab === 'layers' ? <div className="layer-list">{layerItems.length ? [...layerItems].reverse().map((item) => <button key={item.id} className={`layer-item ${selected?.id === item.id ? 'chosen' : ''}`} onClick={() => { setSelected(item); controller?.setSelected(item.id); setInspectorTab('settings') }}><span className="layer-color" style={{ backgroundColor: `#${item.color.toString(16).padStart(6, '0')}` }} /><span className="layer-name">{item.label}</span><span className="layer-kind">{item.kind === 'circle' ? 'КРУГ' : item.kind === 'polygon' ? 'ФИГУРА' : item.kind === 'image' ? 'IMG' : item.motion ? 'ДВИЖ.' : 'СТАТ.'}</span></button>) : <div className="empty-selection">Сцена пуста. Добавь объекты из панели слева.</div>}</div> : <div className="inspector-scroll">
+        {inspectorTab === 'layers' ? <div className="layer-list">{layerItems.length ? [...layerItems].reverse().map((item) => <button key={item.id} className={`layer-item ${selected?.id === item.id ? 'chosen' : ''}`} onClick={() => { setSelected(item); controller?.setSelected(item.id); setInspectorTab('settings') }}><span className="layer-color image-layer-dot" style={{ backgroundColor: `#${item.color.toString(16).padStart(6, '0')}` }} /><span className="layer-name">{item.label}</span><span className="layer-kind">PNG · L{item.level}</span></button>) : <div className="empty-selection">Сцена пуста. Загрузи PNG в коллекцию справа.</div>}</div> : <div className="inspector-scroll">
           <CollectionEditor collections={collections} selectedId={selectedCollectionId} onSelect={setSelectedCollectionId} onCreate={createCollection} onDelete={deleteCollection} onRename={(id, name) => commitCollection(id, (collection) => ({ ...collection, name: name || 'Без названия' }))} onAddLevel={addLevel} onDeleteLevel={deleteLevel} onUpdateLevel={updateLevel} onImage={uploadCollectionImage} onRemoveImage={removeCollectionImage} onSound={uploadCollectionSound} onRemoveSound={removeCollectionSound} onTestSound={(id, level) => void sound.testMergeSound(id, level)} onAddToScene={addCollectionLevelToScene} />
-          <section className="inspector-section"><div className="inspector-title"><span className="title-icon physics-icon"><Icon name="sparkle" size={15} /></span><div><h2>Физика сцены</h2><p>Общие параметры симуляции</p></div><button className="reset-tiny" title="Сбросить параметры" onClick={() => { setGravity(1); setRestitution(0.82); setSpeed(1); applySettings({ gravity: 1, restitution: 0.82, speed: 1 }) }}><Icon name="reset" size={14} /></button></div>
+          <section className="inspector-section"><div className="inspector-title"><span className="title-icon physics-icon"><Icon name="sparkle" size={15} /></span><div><h2>Физика сцены</h2><p>Общие параметры симуляции</p></div><button className="reset-tiny" title="Сбросить параметры" onClick={() => { setGravity(1); setRestitution(DEFAULT_RESTITUTION); setSpeed(1); applySettings({ gravity: 1, restitution: DEFAULT_RESTITUTION, speed: 1 }) }}><Icon name="reset" size={14} /></button></div>
             <RangeControl label="Гравитация" value={gravity} min={0} max={2.5} step={0.05} onChange={(value) => { setGravity(value); applySettings({ gravity: value }) }} />
             <RangeControl label="Упругость" value={restitution} min={0} max={1} step={0.01} onChange={(value) => { setRestitution(value); applySettings({ restitution: value }) }} />
             <RangeControl label="Скорость времени" value={speed} min={0.25} max={2} step={0.05} suffix="×" onChange={(value) => { setSpeed(value); applySettings({ speed: value }) }} />
@@ -289,16 +333,12 @@ export default function App() {
               {!selected.isStatic && <RangeControl label="Отскок объекта" value={selected.restitution ?? restitution} min={0} max={1} step={0.01} onChange={(value) => updateSelected({ restitution: value })} />}
               <div className="property-row"><span>Форма</span><span className="property-value"><span className="shape-dot" />{selected.kind === 'circle' ? 'Круг' : selected.kind === 'polygon' ? 'Многоугольник' : selected.kind === 'image' ? 'Изображение' : 'Прямоугольник'}</span></div>
               <label className="color-row"><span>Цвет объекта</span><span className="color-picker"><input type="color" value={`#${selected.color.toString(16).padStart(6, '0')}`} onChange={(event) => updateSelected({ color: Number.parseInt(event.target.value.slice(1), 16) })} /><span>{`#${selected.color.toString(16).padStart(6, '0').toUpperCase()}`}</span></span></label>
-            </> : <div className="empty-selection">Добавь объект слева или выбери новый, чтобы настроить его размер, массу и цвет.</div>}
+            </> : <div className="empty-selection">Загрузи свою PNG в выбранную коллекцию — она появится в сцене, и здесь можно будет настроить её физику.</div>}
           </section>
 
-          <section className="inspector-section balls-section"><div className="inspector-title"><span className="title-icon group-icon"><Icon name="layers" size={15} /></span><div><h2>Количество шаров</h2><p>Демо-сцена · ограничено до {MAX_BALLS}</p></div></div><RangeControl label="Шары в сцене" value={ballCount} min={1} max={MAX_BALLS} step={1} onChange={updateBallCount} /><div className="ball-count-note"><span className="status-dot" />{ballCount} динамических объектов <span>+ 1 платформа</span></div></section>
-
-          <section className="inspector-section sound-section"><div className="inspector-title"><span className="title-icon audio-icon"><Icon name="sound" size={15} /></span><div><h2>Звук столкновений</h2><p>Синтезированные тоны · Web Audio</p></div><button className={`toggle ${soundEnabled ? 'on' : ''}`} onClick={() => changeSoundEnabled(!soundEnabled)} role="switch" aria-checked={soundEnabled} aria-label="Включить звук"><span /></button></div>
-            <RangeControl label="Громкость" value={volume} min={0} max={1} step={0.01} onChange={changeVolume} />
-            <div className="sound-actions"><label className="sound-type"><span>Тип объекта</span><select value={soundKind} onChange={(event) => setSoundKind(event.target.value as CollisionSoundKind)}><option value="circle">Шар</option><option value="polygon">Многоугольник</option><option value="image">Изображение</option><option value="box">Препятствие</option></select></label><button className="test-sound" onClick={() => void sound.test(soundKind)}><Icon name="sound" size={14} /> Проверить</button></div>
-            <label className="upload-audio"><input type="file" accept="audio/*" onChange={handleAudio} /><span>＋</span> Загрузить звук для типа</label>
-            <div className="audio-note"><span>♪</span> Разные формы звучат по-разному. Свой файл заменит тон выбранного типа.</div>
+          <section className="inspector-section sound-section"><div className="inspector-title"><span className="title-icon audio-icon"><Icon name="sound" size={15} /></span><div><h2>Звук слияния</h2><p>Только для одинаковых уровней</p></div><button className={`toggle ${soundEnabled ? 'on' : ''}`} onClick={() => changeSoundEnabled(!soundEnabled)} role="switch" aria-checked={soundEnabled} aria-label="Включить звук слияния"><span /></button></div>
+            <RangeControl label="Общая громкость" value={volume} min={0} max={1} step={0.01} onChange={changeVolume} />
+            <div className="audio-note"><span>♪</span> Обычные столкновения и удары о стены беззвучны. Звук запускается один раз только после успешного слияния двух одинаковых объектов.</div>
           </section>
         </div>}
       </aside>
