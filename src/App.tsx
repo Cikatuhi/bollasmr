@@ -166,11 +166,21 @@ function EditorApp() {
     // objects. This prevents objects that were already visible before capture
     // from appearing halfway through the exported video.
     const collection = collectionsRef.current.find((item) => item.id === selectedCollectionId)
+    if (collection) {
+      try {
+        // Decode every level before capture starts. Merge-time texture decode
+        // was a visible main-thread/GPU pause in recordings.
+        await sceneController.prepareCollectionImages(collection.id)
+      } catch (error) {
+        console.error('Не удалось подготовить изображения уровней к записи:', error)
+        setRecordingError('Не удалось подготовить изображения. Проверь PNG-файлы и попробуй снова.')
+        return
+      }
+    }
     const firstLevelDefinitions = collection
-      ? collection.levels.filter((level) => level.image && level.level === 1).map((level) => makeLevelDefinition(collection, level, URL.createObjectURL(level.image!)))
+      ? collection.levels.filter((level) => level.image && level.level === 1).map((level) => makeLevelDefinition(collection, level, sceneController.getCollectionImageSource(collection.id, level.level)!))
       : []
     sceneController.setRunning(false)
-    sceneController.setMergeEffectsEnabled(false)
     await sceneController.reset(firstLevelDefinitions)
     setSelected(null)
     syncSceneState()
@@ -199,7 +209,6 @@ function EditorApp() {
       recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data) }
       recorder.onerror = () => {
         recordingActiveRef.current = false
-        sceneController.setMergeEffectsEnabled(true)
         if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
         recordingSpawnTimerRef.current = null
         setRecording(false)
@@ -211,7 +220,6 @@ function EditorApp() {
       }
       recorder.onstop = () => {
         recordingActiveRef.current = false
-        sceneController.setMergeEffectsEnabled(true)
         if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
         recordingSpawnTimerRef.current = null
         const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'video/webm' })
@@ -237,14 +245,14 @@ function EditorApp() {
       recorder.start(1000)
       setRecording(true)
       const firstLevel = collection?.levels.find((level) => level.image && level.level === 1)
-      if (firstLevel) {
+      if (firstLevel && collection) {
         recordingSpawnTimerRef.current = window.setInterval(() => {
           if (sceneController.getObjects().length >= MAX_OBJECTS) return
-          const imageSrc = URL.createObjectURL(firstLevel.image!)
-          void sceneController.addDefinition(makeLevelDefinition(collection!, firstLevel, imageSrc)).then((item) => {
-            if (!item) URL.revokeObjectURL(imageSrc)
+          const imageSrc = sceneController.getCollectionImageSource(collection.id, firstLevel.level)
+          if (!imageSrc) return
+          void sceneController.addDefinition(makeLevelDefinition(collection, firstLevel, imageSrc)).then(() => {
             syncSceneState()
-          }).catch(() => URL.revokeObjectURL(imageSrc))
+          }).catch((error) => console.warn('Не удалось добавить объект в сцену записи:', error))
         }, RECORDING_SPAWN_INTERVAL_MS)
       }
     } catch (error) {

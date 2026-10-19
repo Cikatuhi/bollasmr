@@ -21,7 +21,8 @@ export type SceneController = {
   removeCollection: (collectionId: string) => void
   getObjects: () => SceneObject[]
   getCanvas: () => HTMLCanvasElement | undefined
-  setMergeEffectsEnabled: (enabled: boolean) => void
+  prepareCollectionImages: (collectionId: string) => Promise<void>
+  getCollectionImageSource: (collectionId: string, level: number) => string | undefined
 }
 
 type Props = {
@@ -34,15 +35,55 @@ type Props = {
 
 export default function SimulationViewport({ sound, collections, onController, onSelectObject, onSceneChanged }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
+  const rendererRef = useRef<PixiSceneRenderer | null>(null)
   const collectionsRef = useRef(collections)
+  const imageAssetsRef = useRef(new Map<string, { file: Blob; source: string; release?: () => void }>() )
   const changedRef = useRef(onSceneChanged)
   collectionsRef.current = collections
   changedRef.current = onSceneChanged
+
+  // Keep one decoded texture per collection level. Previously each spawned
+  // object and each merge got a fresh blob URL, forcing a fresh PNG decode and
+  // GPU texture allocation exactly when the recording was busiest.
+  useEffect(() => {
+    const assets = imageAssetsRef.current
+    const wanted = new Map<string, Blob>()
+    for (const collection of collections) {
+      for (const level of collection.levels) {
+        if (level.image) wanted.set(`${collection.id}:${level.level}`, level.image)
+      }
+    }
+    for (const [key, asset] of assets) {
+      if (wanted.get(key) === asset.file) continue
+      asset.release?.()
+      if (!asset.release) URL.revokeObjectURL(asset.source)
+      assets.delete(key)
+    }
+    for (const [key, file] of wanted) {
+      if (assets.has(key)) continue
+      const asset: { file: Blob; source: string; release?: () => void } = { file, source: URL.createObjectURL(file) }
+      assets.set(key, asset)
+      const renderer = rendererRef.current
+      if (renderer) {
+        void renderer.prepareImageSource(asset.source).then((release) => {
+          if (assets.get(key) === asset) asset.release = release
+          else release()
+        }).catch((error) => console.warn(`Не удалось заранее подготовить изображение уровня ${key}:`, error))
+      }
+    }
+  }, [collections])
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     const renderer = new PixiSceneRenderer()
+    rendererRef.current = renderer
+    for (const [key, asset] of imageAssetsRef.current) {
+      void renderer.prepareImageSource(asset.source).then((release) => {
+        if (imageAssetsRef.current.get(key) === asset) asset.release = release
+        else release()
+      }).catch((error) => console.warn(`Не удалось заранее подготовить изображение уровня ${key}:`, error))
+    }
     let merge: MergeSystem
     const scene = new SimulationScene((a, b, impact) => {
       // Collision audio is intentionally disabled. A collision becomes
@@ -55,7 +96,7 @@ export default function SimulationViewport({ sound, collections, onController, o
         const collection = collectionsRef.current.find((item) => item.id === identity.collectionId)
         const level = collection?.levels.find((item) => item.level === identity.level + 1)
         if (!collection || !level || !level.image) return undefined
-        const imageSrc = URL.createObjectURL(level.image)
+        const imageSrc = imageAssetsRef.current.get(`${collection.id}:${level.level}`)?.source ?? URL.createObjectURL(level.image)
         return {
           identity: { collectionId: collection.id, level: level.level },
           definition: {
@@ -71,7 +112,8 @@ export default function SimulationViewport({ sound, collections, onController, o
       createObject: (definition, position, velocity) => {
         const object = scene.addObject(definition, position.x, position.y)
         if (!object) {
-          if (definition.imageSrc?.startsWith('blob:')) URL.revokeObjectURL(definition.imageSrc)
+          // Collection-level blob URLs are retained by the asset cache and
+          // shared by all instances; do not revoke one when an add is refused.
           return undefined
         }
         Matter.Body.setVelocity(object.body, velocity)
@@ -151,7 +193,26 @@ export default function SimulationViewport({ sound, collections, onController, o
 
       onController({
         setRunning: (next) => { running = next },
-        setMergeEffectsEnabled: (enabled) => renderer.setMergeEffectsEnabled(enabled),
+        prepareCollectionImages: async (collectionId) => {
+          const collection = collectionsRef.current.find((item) => item.id === collectionId)
+          if (!collection) return
+          await Promise.all(collection.levels.map(async (level) => {
+            if (!level.image) return
+            const key = `${collection.id}:${level.level}`
+            let asset = imageAssetsRef.current.get(key)
+            if (!asset || asset.file !== level.image) {
+              asset?.release?.()
+              if (asset && !asset.release) URL.revokeObjectURL(asset.source)
+              const newAsset = { file: level.image, source: URL.createObjectURL(level.image) }
+              imageAssetsRef.current.set(key, newAsset)
+              asset = newAsset
+            }
+            if (!asset.release) {
+              asset.release = await renderer.prepareImageSource(asset.source)
+            }
+          }))
+        },
+        getCollectionImageSource: (collectionId, level) => imageAssetsRef.current.get(`${collectionId}:${level}`)?.source,
         reset: async (definitions = []) => {
           const revision = ++sceneRevision
           scene.clearObjects()
@@ -231,6 +292,12 @@ export default function SimulationViewport({ sound, collections, onController, o
 
     return () => {
       disposed = true
+      rendererRef.current = null
+      for (const asset of imageAssetsRef.current.values()) {
+        asset.release?.()
+        if (!asset.release) URL.revokeObjectURL(asset.source)
+      }
+      imageAssetsRef.current.clear()
       observer?.disconnect()
       pointerCanvas?.removeEventListener('pointerdown', onPointerDown)
       pointerCanvas?.removeEventListener('pointermove', onPointerMove)
