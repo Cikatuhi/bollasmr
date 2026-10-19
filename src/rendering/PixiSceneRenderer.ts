@@ -121,6 +121,7 @@ export class PixiSceneRenderer {
   private readonly mergeBursts: MergeBurst[] = []
   private readonly mergePops = new Map<string, number>()
   private initialized = false
+  private mergeEffectsEnabled = true
   private selectedId?: string
   private arenaGeometry: Required<ArenaGeometry>
 
@@ -238,12 +239,23 @@ export class PixiSceneRenderer {
 
   setSelected(id?: string) { this.selectedId = id; }
 
+  setMergeEffectsEnabled(enabled: boolean) {
+    this.mergeEffectsEnabled = enabled
+    if (!enabled) this.clearMergeEffects()
+  }
+
+  private clearMergeEffects() {
+    for (const burst of this.mergeBursts) this.destroyMergeBurst(burst)
+    this.mergeBursts.length = 0
+    this.mergePops.clear()
+  }
+
   /**
    * Play presentation-only feedback for a merge already accepted by the
    * physics coordinator. This does not alter Matter bodies or React state.
    */
   playMergeAnimation(position: Point, resultId: string) {
-    if (!this.initialized) return
+    if (!this.initialized || !this.mergeEffectsEnabled) return
     this.mergePops.set(resultId, 0)
 
     // Bound transient allocations if a heavily populated arena merges many
@@ -315,9 +327,7 @@ export class PixiSceneRenderer {
   }
 
   destroy() {
-    for (const burst of this.mergeBursts) this.destroyMergeBurst(burst)
-    this.mergeBursts.length = 0
-    this.mergePops.clear()
+    this.clearMergeEffects()
     for (const [id, node] of this.nodes) {
       this.destroyNode(node)
       this.releaseImageSource(id)

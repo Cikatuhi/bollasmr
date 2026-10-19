@@ -21,6 +21,7 @@ export type SceneController = {
   removeCollection: (collectionId: string) => void
   getObjects: () => SceneObject[]
   getCanvas: () => HTMLCanvasElement | undefined
+  setMergeEffectsEnabled: (enabled: boolean) => void
 }
 
 type Props = {
@@ -150,6 +151,7 @@ export default function SimulationViewport({ sound, collections, onController, o
 
       onController({
         setRunning: (next) => { running = next },
+        setMergeEffectsEnabled: (enabled) => renderer.setMergeEffectsEnabled(enabled),
         reset: async (definitions = []) => {
           const revision = ++sceneRevision
           scene.clearObjects()

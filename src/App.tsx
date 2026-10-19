@@ -170,6 +170,7 @@ function EditorApp() {
       ? collection.levels.filter((level) => level.image && level.level === 1).map((level) => makeLevelDefinition(collection, level, URL.createObjectURL(level.image!)))
       : []
     sceneController.setRunning(false)
+    sceneController.setMergeEffectsEnabled(false)
     await sceneController.reset(firstLevelDefinitions)
     setSelected(null)
     syncSceneState()
@@ -198,6 +199,7 @@ function EditorApp() {
       recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data) }
       recorder.onerror = () => {
         recordingActiveRef.current = false
+        sceneController.setMergeEffectsEnabled(true)
         if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
         recordingSpawnTimerRef.current = null
         setRecording(false)
@@ -209,6 +211,7 @@ function EditorApp() {
       }
       recorder.onstop = () => {
         recordingActiveRef.current = false
+        sceneController.setMergeEffectsEnabled(true)
         if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
         recordingSpawnTimerRef.current = null
         const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'video/webm' })
