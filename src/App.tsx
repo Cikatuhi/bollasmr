@@ -149,11 +149,25 @@ export default function App() {
       return
     }
     const canvas = controller?.getCanvas()
-    if (!canvas || typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
+    if (!controller || !canvas || typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
       setRecordingError('Запись видео не поддерживается этим браузером.')
       return
     }
     setRecordingError('')
+    const sceneController = controller
+    // A recording always starts from a clean scene containing only level-1
+    // objects. This prevents objects that were already visible before capture
+    // from appearing halfway through the exported video.
+    const collection = collectionsRef.current.find((item) => item.id === selectedCollectionId)
+    const firstLevelDefinitions = collection
+      ? collection.levels.filter((level) => level.image && level.level === 1).map((level) => makeLevelDefinition(collection, level, URL.createObjectURL(level.image!)))
+      : []
+    sceneController.setRunning(false)
+    await sceneController.reset(firstLevelDefinitions)
+    setSelected(null)
+    syncSceneState()
+    sceneController.setRunning(true)
+    setRunning(true)
     let videoStream: MediaStream | undefined
     let stream: MediaStream | undefined
     try {
