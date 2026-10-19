@@ -180,11 +180,20 @@ function EditorApp() {
     try {
       const audioTrack = await sound.getRecordingTrack()
       recordingAudioTrackRef.current = audioTrack
-      videoStream = canvas.captureStream(60)
+      // The scene is rendered by a single Pixi ticker. Requesting 60 FPS from
+      // MediaRecorder makes Chromium queue frames when Matter is busy with a
+      // dense PNG scene, which is perceived as a jerky recording. 30 FPS
+      // matches the sustainable render cadence and gives every frame a stable
+      // timestamp instead of dropping bursts of frames.
+      videoStream = canvas.captureStream(30)
       stream = new MediaStream([...videoStream.getVideoTracks(), audioTrack])
       const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
         .find((candidate) => MediaRecorder.isTypeSupported(candidate))
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      const recorder = new MediaRecorder(stream, mimeType ? {
+        mimeType,
+        videoBitsPerSecond: 8_000_000,
+        audioBitsPerSecond: 128_000,
+      } : { videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 128_000 })
       recordedChunksRef.current = []
       recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data) }
       recorder.onerror = () => {
