@@ -59,7 +59,10 @@ type MergeBurst = {
   elapsed: number
 }
 
-const MAX_MERGE_BURSTS = 24
+// Keep the merge presentation visible, but bounded. During a dense recording
+// many simultaneous bursts otherwise create and animate hundreds of Graphics
+// nodes on the main thread.
+const MAX_MERGE_BURSTS = 10
 const MERGE_SPARK_COLORS = [0x8dff32, 0x24d8ff, 0xff38a8, 0xffffff, 0x754bff]
 
 function cubic(from: Point, control1: Point, control2: Point, to: Point, steps: number) {
@@ -272,7 +275,7 @@ export class PixiSceneRenderer {
     container.addChild(ring)
 
     const sparks: MergeSpark[] = []
-    const sparkCount = 10
+    const sparkCount = 6
     for (let index = 0; index < sparkCount; index += 1) {
       const angle = (Math.PI * 2 * index) / sparkCount
       const direction = { x: Math.cos(angle), y: Math.sin(angle) }
