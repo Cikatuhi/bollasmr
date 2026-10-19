@@ -50,6 +50,10 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true)
   const [recording, setRecording] = useState(false)
   const [recordingError, setRecordingError] = useState('')
+  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null)
+  const [recordedDuration, setRecordedDuration] = useState(0)
+  const [recordedCurrentTime, setRecordedCurrentTime] = useState(0)
+  const recordedVideoRef = useRef<HTMLVideoElement | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const recordingAudioTrackRef = useRef<MediaStreamTrack | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
@@ -180,12 +184,14 @@ export default function App() {
         setRecording(false)
         if (!blob.size) { setRecordingError('Запись оказалась пустой.'); return }
         const url = URL.createObjectURL(blob)
+        setRecordedVideoUrl((previous) => { if (previous) URL.revokeObjectURL(previous); return url })
+        setRecordedCurrentTime(0)
         const link = document.createElement('a')
         link.href = url
         const extension = blob.type.includes('mp4') ? 'mp4' : 'webm'
         link.download = `ballstudio-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`
         link.click()
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+        window.setTimeout(() => { if (recordedVideoUrl !== url) URL.revokeObjectURL(url) }, 60_000)
       }
       recorderRef.current = recorder
       recorder.start(250)
@@ -203,7 +209,16 @@ export default function App() {
   useEffect(() => () => {
     const recorder = recorderRef.current
     if (recorder?.state === 'recording') recorder.stop()
-  }, [])
+    if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl)
+  }, [recordedVideoUrl])
+
+  const toggleRecordedPlayback = () => {
+    const video = recordedVideoRef.current
+    if (!video) return
+    if (video.paused) void video.play().catch(() => undefined)
+    else video.pause()
+  }
+  const formatTime = (value: number) => `${Math.floor(value / 60).toString().padStart(2, '0')}:${Math.floor(value % 60).toString().padStart(2, '0')}`
 
   const clearScene = () => {
     controller?.removeAll()
@@ -388,11 +403,12 @@ export default function App() {
 
       <section className="workspace">
         <div className="workspace-toolbar"><div className="breadcrumb"><span>Сцена</span><span className="crumb-slash">/</span><strong>Мои PNG</strong></div><div className="view-tools"><span className="scene-size"><span className="portrait-icon" /> 9:16</span><span className="toolbar-separator" /><span className="zoom-value">100%</span><button className="zoom-button" title="Масштаб по размеру экрана">⊡</button><button className="zoom-button" title="Очистить сцену" onClick={clearScene}><Icon name="close" size={15} /></button></div></div>
-        <div className="canvas-workspace">
+          <div className="canvas-workspace">
+            {recordedVideoUrl && <video ref={recordedVideoRef} className="recorded-preview" src={recordedVideoUrl} controls playsInline onLoadedMetadata={(event) => setRecordedDuration(event.currentTarget.duration || 0)} onTimeUpdate={(event) => setRecordedCurrentTime(event.currentTarget.currentTime)} onEnded={() => setRecordedCurrentTime(recordedDuration)} />}
           <div className="stage-wrap"><div className="stage-glow" /><SimulationViewport sound={sound} collections={collections} onController={registerController} onSelectObject={registerSelection} onSceneChanged={syncSceneState} /><div className="stage-top-label"><span className="stage-live" /> LIVE PREVIEW</div><div className="stage-bottom-label"><span>360 × 640</span><span>·</span><span>9:16</span></div></div>
           <div className="canvas-caption"><span className="caption-icon"><Icon name="sparkle" size={15} /></span><span>В сцене только загруженные PNG <i>·</i> одинаковые уровни сливаются</span></div>
         </div>
-        <div className="timeline-bar"><button className={`timeline-play ${running ? '' : 'paused'}`} onClick={toggleRunning} aria-label={running ? 'Пауза' : 'Запуск'}><Icon name={running ? 'pause' : 'play'} size={13} /></button><div className="timeline-track"><div className="timeline-fill" /><div className="timeline-scrubber" /></div><span className="timeline-time">00:08 <span>/</span> ∞</span><span className="timeline-label">СИМУЛЯЦИЯ В РЕАЛЬНОМ ВРЕМЕНИ</span></div>
+        <div className="timeline-bar"><button className={`timeline-play ${recordedVideoUrl ? '' : (running ? '' : 'paused')}`} onClick={recordedVideoUrl ? toggleRecordedPlayback : toggleRunning} aria-label={recordedVideoUrl ? 'Воспроизвести запись' : (running ? 'Пауза' : 'Запуск')}><Icon name={recordedVideoUrl && !recordedVideoRef.current?.paused ? 'pause' : 'play'} size={13} /></button><div className="timeline-track"><div className="timeline-fill" style={{ width: recordedDuration ? `${(recordedCurrentTime / recordedDuration) * 100}%` : undefined }} /><input aria-label="Перемотка записи" className="timeline-seek" type="range" min="0" max={recordedDuration || 1} step="0.01" value={recordedCurrentTime} disabled={!recordedVideoUrl} onChange={(event) => { const value = Number(event.target.value); setRecordedCurrentTime(value); if (recordedVideoRef.current) recordedVideoRef.current.currentTime = value }} /></div><span className="timeline-time">{recordedVideoUrl ? formatTime(recordedCurrentTime) : 'LIVE'} <span>/</span> {recordedVideoUrl ? formatTime(recordedDuration) : '∞'}</span><span className="timeline-label">{recordedVideoUrl ? 'ПРОСМОТР ЗАПИСИ' : 'СИМУЛЯЦИЯ В РЕАЛЬНОМ ВРЕМЕНИ'}</span></div>
       </section>
 
       <aside className="right-panel panel">
