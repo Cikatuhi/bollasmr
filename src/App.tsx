@@ -224,7 +224,7 @@ export default function App() {
             if (!item) URL.revokeObjectURL(imageSrc)
             syncSceneState()
           }).catch(() => URL.revokeObjectURL(imageSrc))
-        }, 900)
+        }, 100)
       }
     } catch (error) {
       videoStream?.getTracks().forEach((track) => track.stop())
