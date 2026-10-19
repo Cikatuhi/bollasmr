@@ -43,7 +43,7 @@ function RangeControl({ label, value, min, max, step, suffix, onChange }: {
   </label>
 }
 
-export default function App() {
+function EditorApp() {
   const sound = useMemo(() => new AudioEngine(), [])
   const [controller, setController] = useState<SceneController | null>(null)
   const [running, setRunning] = useState(true)
@@ -488,4 +488,23 @@ export default function App() {
       </aside>
     </div>
   </main>
+}
+
+function LandingPage() {
+  return <main className="landing-page">
+    <nav className="landing-nav"><a className="landing-brand" href="#top"><span className="landing-mark">✳</span> ball<span>play</span></a><a className="landing-nav-link" href="#features">Возможности</a><a className="landing-nav-cta" href="#subscribe">Получить доступ <span>↗</span></a></nav>
+    <section className="landing-hero" id="top">
+      <div className="landing-copy"><div className="landing-eyebrow"><span /> ТВОРЧЕСКАЯ ПЛОЩАДКА ДЛЯ ВИРУСНЫХ ВИДЕО</div><h1>Залипательные симуляции.<br /><em>Твой следующий хит.</em></h1><p>Загружай свои картинки, сталкивай уровни и записывай физические симуляции для TikTok, Reels и Shorts — прямо в браузере.</p><a className="landing-primary" href="#subscribe">Попробовать за 1 ₽ <span>→</span></a><div className="landing-note">Разовый платёж · доступ к редактору после подтверждения оплаты</div></div>
+      <div className="landing-preview" aria-label="Превью редактора BallPlay"><div className="preview-top"><span className="preview-dot" /><span className="preview-dot" /><span className="preview-dot" /><span className="preview-title">ballplay / симуляция 01</span><span className="preview-live">● LIVE</span></div><div className="preview-scene"><div className="preview-arena"><span className="preview-object object-one">🐱</span><span className="preview-object object-two">🐸</span><span className="preview-object object-three">🐱</span><span className="preview-spark">✦</span></div><div className="preview-caption">ТВОЯ ИДЕЯ — ТВОЯ СИМУЛЯЦИЯ</div></div><div className="preview-controls"><span>◉ Запись</span><span>Ⅱ Пауза</span><span>⟳ Сброс</span><div className="preview-wave"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></div></div>
+    </section>
+    <section className="landing-features" id="features"><div className="landing-section-heading"><span>СОЗДАВАЙ СВОИ ПРАВИЛА</span><h2>Из картинки — в симуляцию</h2></div><div className="landing-feature-grid"><article><b>01</b><h3>Твои персонажи</h3><p>Загружай PNG с прозрачным фоном и собирай собственные коллекции уровней.</p></article><article><b>02</b><h3>Физика и слияния</h3><p>Объекты падают, сталкиваются и объединяются. Настраивай движение под свой стиль.</p></article><article><b>03</b><h3>Видео для соцсетей</h3><p>Записывай вертикальные симуляции 9:16 и делись готовыми роликами.</p></article></div></section>
+    <section className="landing-subscribe" id="subscribe"><div><div className="landing-eyebrow"><span /> РАННИЙ ДОСТУП</div><h2>Попробуй BallPlay<br />за <em>1 рубль</em></h2><p>Оплати доступ и открой редактор. Создавай коллекции, настраивай физику и записывай свои первые симуляции.</p><button className="landing-primary" type="button" disabled title="Подключение оплаты ещё не настроено">Оплатить 1 ₽ <span>→</span></button><small>Платёжная система пока не подключена. Покупка сейчас недоступна.</small></div><div className="landing-price"><span>СТАРТ</span><strong>1 ₽</strong><small>тестовая цена доступа</small><div>✓ Редактор симуляций</div><div>✓ Пользовательские PNG-коллекции</div><div>✓ Запись вертикального видео</div></div></section>
+    <footer className="landing-footer"><a className="landing-brand" href="#top"><span className="landing-mark">✳</span> ball<span>play</span></a><span>Твори. Запускай. Залипай.</span><span>© BallPlay</span></footer>
+  </main>
+}
+
+export default function App() {
+  const isEditorRoute = window.location.pathname === '/editor'
+  if (isEditorRoute) return <EditorApp />
+  return <LandingPage />
 }
