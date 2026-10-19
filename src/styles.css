@@ -47,8 +47,14 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .icon-button { width: 31px; height: 31px; border: 0; display: grid; place-items: center; color: #aeb0bd; border-radius: 6px; background: transparent; cursor: pointer; }
 .icon-button:hover, .quiet-icon:hover { background: #32333e; color: #e6e6f0; }
 .topbar-divider.small { height: 23px; }
-.export-button { background: #24252d; border: 1px solid #34353f; color: #aaaeba; font-size: 11px; border-radius: 7px; height: 32px; padding: 0 12px; cursor: not-allowed; }
-.export-button span { color: #a19aff; margin-left: 8px; }
+.record-button { display: flex; align-items: center; gap: 8px; background: #24252d; border: 1px solid #41424c; color: #e8e8ef; font-size: 11px; font-weight: 650; border-radius: 7px; height: 32px; padding: 0 12px; cursor: pointer; transition: background .15s, border-color .15s; }
+.record-button:hover:not(:disabled) { background: #30313a; border-color: #62636e; }
+.record-button:disabled { opacity: .5; cursor: wait; }
+.record-button.recording { background: #4b2028; border-color: #a33d4b; color: #ffdce0; }
+.record-indicator { width: 8px; height: 8px; background: #fa5364; border-radius: 50%; box-shadow: 0 0 8px #fa536477; }
+.record-button.recording .record-indicator { animation: recording-pulse 1s ease-in-out infinite; }
+.recording-error { position: absolute; right: 64px; top: 58px; z-index: 10; max-width: 290px; color: #ffdce0; background: #4b2028; border: 1px solid #a33d4b; border-radius: 7px; padding: 8px 10px; font-size: 11px; }
+@keyframes recording-pulse { 50% { opacity: .35; } }
 .avatar { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 50%; background: linear-gradient(145deg, #f49eb5, #c57baf); color: #302230; font: 700 12px 'Manrope', sans-serif; }
 
 .editor-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: 232px minmax(420px, 1fr) 308px; gap: 0; }

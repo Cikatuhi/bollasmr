@@ -17,6 +17,8 @@ export type CollectionLevel = {
   mergeSound: Blob | null
   mergeSoundName?: string
   mergeSoundVolume: number
+  /** Playback speed for this level -> next level transition. */
+  mergeSoundRate?: number
 }
 
 export type UserCollection = {
@@ -77,6 +79,7 @@ export function validateCollection(value: unknown): UserCollection | null {
         !Number.isFinite(candidate.size) || (candidate.size as number) < 1 || (candidate.size as number) > 1000 ||
         !Number.isFinite(candidate.mass) || (candidate.mass as number) <= 0 || (candidate.mass as number) > 10000 ||
         !Number.isFinite(candidate.mergeSoundVolume) || (candidate.mergeSoundVolume as number) < 0 || (candidate.mergeSoundVolume as number) > 1 ||
+        (candidate.mergeSoundRate !== undefined && (!Number.isFinite(candidate.mergeSoundRate) || (candidate.mergeSoundRate as number) < 0.1 || (candidate.mergeSoundRate as number) > 2)) ||
         !validBlob(candidate.image) || !validBlob(candidate.mergeSound) ||
         (candidate.imageName !== undefined && !validString(candidate.imageName)) ||
         (candidate.mergeSoundName !== undefined && !validString(candidate.mergeSoundName))) return null
@@ -96,6 +99,7 @@ export function validateCollection(value: unknown): UserCollection | null {
       mergeSound: candidate.mergeSound,
       ...(candidate.mergeSoundName ? { mergeSoundName: candidate.mergeSoundName } : {}),
       mergeSoundVolume: candidate.mergeSoundVolume as number,
+      mergeSoundRate: candidate.mergeSoundRate === undefined ? 1 : candidate.mergeSoundRate as number,
     })
   }
   levels.sort((a, b) => a.level - b.level)

@@ -15,33 +15,6 @@ export function createPhysicsBody(definition: ObjectDefinition, x: number, y: nu
   return factory(definition, x, y, options)
 }
 
-/**
- * Matter.js 0.20 omits the parallel-axis term for fixtures in a compound
- * body's inertia. Recompute from the child fixtures so this is safe to call
- * after resizing or changing the parent body's mass (and never accumulates).
- */
-export function correctCompoundInertia(body: Matter.Body) {
-  if (body.parts.length <= 1 || body.isStatic) return
-
-  const fixtures = body.parts.slice(1)
-  const fixtureMass = fixtures.reduce((sum, part) => sum + part.mass, 0)
-  if (!Number.isFinite(fixtureMass) || fixtureMass <= 0) return
-
-  const fixtureInertia = fixtures.reduce((sum, part) => sum + part.inertia, 0)
-  const parallelAxisInertia = fixtures.reduce((sum, part) => {
-    const offsetX = part.position.x - body.position.x
-    const offsetY = part.position.y - body.position.y
-    return sum + part.mass * (offsetX * offsetX + offsetY * offsetY)
-  }, 0)
-  const bodyInternals = Matter.Body as typeof Matter.Body & { _inertiaScale?: number }
-  const inertiaScale = bodyInternals._inertiaScale ?? 4
-
-  // Body.setMass() scales inertia linearly by mass while leaving part masses
-  // unchanged, so match its ratio using the sum of the current fixture masses.
-  Matter.Body.setInertia(body,
-    ((fixtureInertia + inertiaScale * parallelAxisInertia) * body.mass) / fixtureMass)
-}
-
 registerPhysicsBodyFactory('circle', (definition, x, y, options) => Matter.Bodies.circle(x, y, definition.radius ?? 20, options, 18))
 // Uploaded PNGs render with their original proportions, while their physical
 // shell stays deliberately simple and stable: one circle per image.

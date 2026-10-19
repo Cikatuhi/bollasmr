@@ -20,6 +20,7 @@ export type SceneController = {
   removeCollectionLevel: (collectionId: string, level: number) => void
   removeCollection: (collectionId: string) => void
   getObjects: () => SceneObject[]
+  getCanvas: () => HTMLCanvasElement | undefined
 }
 
 type Props = {
@@ -222,6 +223,7 @@ export default function SimulationViewport({ sound, collections, onController, o
           renderer.sync(scene.objects)
         },
         getObjects: () => scene.objects,
+        getCanvas: () => renderer.app.canvas,
       })
     }).catch((error: unknown) => console.error('Не удалось запустить PixiJS:', error))
 

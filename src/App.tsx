@@ -48,6 +48,11 @@ export default function App() {
   const [speed, setSpeed] = useState(1)
   const [volume, setVolume] = useState(0.32)
   const [soundEnabled, setSoundEnabled] = useState(true)
+  const [recording, setRecording] = useState(false)
+  const [recordingError, setRecordingError] = useState('')
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const recordingAudioTrackRef = useRef<MediaStreamTrack | null>(null)
+  const recordedChunksRef = useRef<Blob[]>([])
   const [selected, setSelected] = useState<ObjectDefinition | null>(null)
   const [objectCount, setObjectCount] = useState(0)
   const [layerItems, setLayerItems] = useState<ObjectDefinition[]>([])
@@ -57,6 +62,8 @@ export default function App() {
   const [collectionsLoaded, setCollectionsLoaded] = useState(false)
   const collectionStoreRef = useRef<CollectionStore | null>(null)
   const hydratedCollectionRef = useRef<string | null>(null)
+  const collectionsRef = useRef(collections)
+  collectionsRef.current = collections
 
   const makeId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
   useEffect(() => {
@@ -86,7 +93,7 @@ export default function App() {
       setSelectedCollectionId(recovered[0]?.id)
       setCollectionsLoaded(true)
       for (const collection of recovered) for (const level of collection.levels) {
-        if (level.mergeSound) void sound.loadMergeSound(collection.id, level.level, level.mergeSound, level.mergeSoundVolume).catch(() => undefined)
+        if (level.mergeSound) void sound.loadMergeSound(collection.id, level.level, level.mergeSound, level.mergeSoundVolume, level.mergeSoundRate).catch(() => undefined)
       }
     }).catch((error) => { console.error('Не удалось загрузить коллекции:', error); setCollectionsLoaded(true); window.alert('Не удалось загрузить локальные коллекции.') })
     return () => { store.close?.(); collectionStoreRef.current = null }
@@ -132,6 +139,72 @@ export default function App() {
     controller?.setRunning(next)
   }
 
+  const toggleRecording = async () => {
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.stop()
+      return
+    }
+    const canvas = controller?.getCanvas()
+    if (!canvas || typeof canvas.captureStream !== 'function' || typeof MediaRecorder === 'undefined') {
+      setRecordingError('Запись видео не поддерживается этим браузером.')
+      return
+    }
+    setRecordingError('')
+    let videoStream: MediaStream | undefined
+    let stream: MediaStream | undefined
+    try {
+      const audioTrack = await sound.getRecordingTrack()
+      recordingAudioTrackRef.current = audioTrack
+      videoStream = canvas.captureStream(60)
+      stream = new MediaStream([...videoStream.getVideoTracks(), audioTrack])
+      const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+        .find((candidate) => MediaRecorder.isTypeSupported(candidate))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      recordedChunksRef.current = []
+      recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data) }
+      recorder.onerror = () => {
+        setRecording(false)
+        setRecordingError('Не удалось записать видео. Попробуй ещё раз.')
+        videoStream?.getTracks().forEach((track) => track.stop())
+        sound.releaseRecordingTrack(audioTrack)
+        recordingAudioTrackRef.current = null
+        recorderRef.current = null
+      }
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'video/webm' })
+        recordedChunksRef.current = []
+        videoStream?.getTracks().forEach((track) => track.stop())
+        sound.releaseRecordingTrack(audioTrack)
+        recordingAudioTrackRef.current = null
+        recorderRef.current = null
+        setRecording(false)
+        if (!blob.size) { setRecordingError('Запись оказалась пустой.'); return }
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        const extension = blob.type.includes('mp4') ? 'mp4' : 'webm'
+        link.download = `ballstudio-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`
+        link.click()
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      }
+      recorderRef.current = recorder
+      recorder.start(250)
+      setRecording(true)
+    } catch (error) {
+      videoStream?.getTracks().forEach((track) => track.stop())
+      if (recordingAudioTrackRef.current) sound.releaseRecordingTrack(recordingAudioTrackRef.current)
+      recordingAudioTrackRef.current = null
+      console.error('Не удалось начать запись видео:', error)
+      setRecordingError('Не удалось начать запись. Проверь разрешения браузера и попробуй снова.')
+      setRecording(false)
+    }
+  }
+
+  useEffect(() => () => {
+    const recorder = recorderRef.current
+    if (recorder?.state === 'recording') recorder.stop()
+  }, [])
+
   const clearScene = () => {
     controller?.removeAll()
     setSelected(null)
@@ -155,7 +228,7 @@ export default function App() {
   }
   const createCollection = () => {
     const now = Date.now()
-    const collection: UserCollection = { id: makeId(), name: `Коллекция ${collections.length + 1}`, createdAt: now, updatedAt: now, levels: [{ id: makeId(), level: 1, name: 'Уровень 1', image: null, size: 48, mass: 1, mergeSound: null, mergeSoundVolume: 1 }] }
+    const collection: UserCollection = { id: makeId(), name: `Коллекция ${collections.length + 1}`, createdAt: now, updatedAt: now, levels: [{ id: makeId(), level: 1, name: 'Уровень 1', image: null, size: 48, mass: 1, mergeSound: null, mergeSoundVolume: 1, mergeSoundRate: 1 }] }
     setCollections((items) => [...items, collection])
     setSelectedCollectionId(collection.id)
     void collectionStoreRef.current?.save(collection).catch((error) => window.alert(error instanceof Error ? error.message : 'Не удалось сохранить коллекцию.'))
@@ -169,7 +242,7 @@ export default function App() {
   }
   const addLevel = (id: string) => commitCollection(id, (collection) => {
     const level = Math.max(0, ...collection.levels.map((item) => item.level)) + 1
-    return { ...collection, levels: [...collection.levels, { id: makeId(), level, name: `Уровень ${level}`, image: null, size: 48, mass: 1, mergeSound: null, mergeSoundVolume: 1 }] }
+    return { ...collection, levels: [...collection.levels, { id: makeId(), level, name: `Уровень ${level}`, image: null, size: 48, mass: 1, mergeSound: null, mergeSoundVolume: 1, mergeSoundRate: 1 }] }
   })
   const deleteLevel = (id: string, levelId: string) => {
     const level = collections.find((item) => item.id === id)?.levels.find((item) => item.id === levelId)
@@ -180,6 +253,7 @@ export default function App() {
   const updateLevel = (id: string, levelId: string, patch: Partial<CollectionLevel>) => {
     const level = collections.find((item) => item.id === id)?.levels.find((item) => item.id === levelId)
     if (level && patch.mergeSoundVolume !== undefined) sound.setMergeSoundVolume(id, level.level, patch.mergeSoundVolume)
+    if (level && patch.mergeSoundRate !== undefined) sound.setMergeSoundRate(id, level.level, patch.mergeSoundRate)
     commitCollection(id, (collection) => ({ ...collection, levels: collection.levels.map((item) => item.id === levelId ? { ...item, ...patch } : item) }))
   }
   const uploadCollectionImage = async (id: string, levelId: string, file: File) => {
@@ -220,7 +294,7 @@ export default function App() {
     const collection = collections.find((item) => item.id === id)
     const level = collection?.levels.find((item) => item.id === levelId)
     if (!collection || !level) return
-    void sound.loadMergeSound(id, level.level, file, level.mergeSoundVolume).then(() => {
+    void sound.loadMergeSound(id, level.level, file, level.mergeSoundVolume, level.mergeSoundRate).then(() => {
       commitCollection(id, (current) => ({ ...current, levels: current.levels.map((item) => item.id === levelId ? { ...item, mergeSound: file, mergeSoundName: file.name } : item) }))
     }).catch(() => window.alert('Не удалось прочитать аудиофайл.'))
   }
@@ -262,10 +336,15 @@ export default function App() {
     if (!controller || !collectionsLoaded) return
     if (hydratedCollectionRef.current === (selectedCollectionId ?? null)) return
     hydratedCollectionRef.current = selectedCollectionId ?? null
-    void controller.reset(definitionsForCollection(collections.find((item) => item.id === selectedCollectionId)))
+    const collection = collectionsRef.current.find((item) => item.id === selectedCollectionId)
+    const definitions = collection
+      ? collection.levels.filter((level) => level.image).sort((a, b) => a.level - b.level).slice(0, MAX_OBJECTS)
+        .map((level) => makeLevelDefinition(collection, level, URL.createObjectURL(level.image!)))
+      : []
+    void controller.reset(definitions)
     setSelected(null)
     syncSceneState()
-  }, [controller, collectionsLoaded, selectedCollectionId, collections, syncSceneState])
+  }, [controller, collectionsLoaded, selectedCollectionId, syncSceneState])
 
   const selectedCollection = collections.find((item) => item.id === selectedCollectionId)
 
@@ -280,7 +359,8 @@ export default function App() {
           <button className="icon-button" onClick={resetScene} disabled={!controller} title="Перезапустить сцену" aria-label="Перезапустить"><Icon name="reset" /></button>
         </div>
         <div className="topbar-divider small" />
-        <button className="export-button" disabled title="Экспорт видео появится в будущей версии">Экспорт <span>↗</span></button>
+        <button className={`record-button ${recording ? 'recording' : ''}`} onClick={() => void toggleRecording()} disabled={!controller} title={recording ? 'Остановить и скачать запись' : 'Записать симуляцию'}><span className="record-indicator" />{recording ? 'Стоп и скачать' : 'Запись'}</button>
+        {recordingError && <span className="recording-error" role="status">{recordingError}</span>}
         <div className="avatar">B</div>
       </div>
     </header>
