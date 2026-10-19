@@ -30,6 +30,8 @@ export type ObjectDefinition = {
   imageSrc?: string
   /** Collision shape derived from the uploaded PNG's alpha mask. */
   imageGeometry?: ImageCollisionGeometry
+  /** Use the alpha-derived silhouette instead of the stable circular shell. */
+  useImageOutline?: boolean
   isStatic?: boolean
   density?: number
   mass?: number

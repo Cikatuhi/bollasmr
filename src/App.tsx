@@ -337,7 +337,7 @@ export default function App() {
     // texture can never remain visible under the new filename.
     controller?.removeCollectionLevel(id, level.level)
     const imageSrc = URL.createObjectURL(file)
-    const item = await controller?.addDefinition({ id: `user-${makeId()}`, kind: 'image', visual: 'image', label: level.name, color: 0xffffff, radius: level.size / 2, mass: level.mass, restitution, imageSrc, imageGeometry, collectionId: id, level: level.level })
+    const item = await controller?.addDefinition({ id: `user-${makeId()}`, kind: 'image', visual: 'image', label: level.name, color: 0xffffff, radius: level.size / 2, mass: level.mass, restitution, imageSrc, imageGeometry, useImageOutline: true, collectionId: id, level: level.level })
     if (!item) URL.revokeObjectURL(imageSrc)
     syncSceneState()
   }
@@ -366,7 +366,7 @@ export default function App() {
   const makeLevelDefinition = (collection: UserCollection, level: CollectionLevel, imageSrc: string): ObjectDefinition => ({
     id: `user-${makeId()}`, kind: 'image', visual: 'image', label: level.name, color: 0xffffff,
     radius: level.size / 2, mass: level.mass, restitution, imageSrc,
-    imageGeometry: level.imageGeometry,
+    imageGeometry: level.imageGeometry, useImageOutline: true,
     collectionId: collection.id, level: level.level,
   })
   const definitionsForCollection = (collection?: UserCollection) => collection
