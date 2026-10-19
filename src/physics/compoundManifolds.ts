@@ -83,7 +83,7 @@ const activeDetectors = new Set<Matter.Detector>()
 let originalCollisions: typeof Matter.Detector.collisions | undefined
 let wrappedCollisions: typeof Matter.Detector.collisions | undefined
 
-/** Install the filter only for BallStudio engines and restore Matter on teardown. */
+/** Install the filter only for BallPlay engines and restore Matter on teardown. */
 export function registerCompoundManifoldFilter(detector: Matter.Detector) {
   activeDetectors.add(detector)
   if (!wrappedCollisions) {

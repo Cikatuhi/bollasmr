@@ -212,7 +212,7 @@ export default function App() {
         const link = document.createElement('a')
         link.href = url
         const extension = blob.type.includes('mp4') ? 'mp4' : 'webm'
-        link.download = `ballstudio-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`
+        link.download = `ballplay-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`
         link.click()
         window.setTimeout(() => { if (recordedVideoUrl !== url) URL.revokeObjectURL(url) }, 60_000)
       }
@@ -446,7 +446,7 @@ export default function App() {
           {!selectedCollection?.levels.some((level) => level.image) && <div className="user-images-empty">Загрузи PNG в разделе «Коллекции объектов». После загрузки объект начнёт падать сверху через вход арены.</div>}
         </div>
 
-        <div className="left-panel-footer"><div className="help-dot">?</div><div><strong>BallStudio 0.1</strong><span>Создавай. Запускай. Залипай.</span></div><button className="quiet-icon" title="Справка"><span>↗</span></button></div>
+        <div className="left-panel-footer"><div className="help-dot">?</div><div><strong>BallPlay 0.1</strong><span>Создавай. Запускай. Залипай.</span></div><button className="quiet-icon" title="Справка"><span>↗</span></button></div>
       </aside>
 
       <section className="workspace">

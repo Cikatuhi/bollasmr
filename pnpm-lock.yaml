@@ -7,6 +7,7 @@ settings:
 importers:
 
   .:
+    name: ballplay
     dependencies:
       matter-js:
         specifier: ^0.20.0
