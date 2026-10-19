@@ -413,7 +413,7 @@ export default function App() {
 
   return <main className="editor-app">
     <header className="topbar">
-      <div className="brand"><div className="brand-mark"><span /><span /><span /></div><div className="brand-name">ball<span>studio</span><small>PHYSICS PLAYGROUND</small></div></div>
+      <div className="brand"><div className="brand-mark"><span /><span /><span /></div><div className="brand-name">ball<span>play</span><small>PHYSICS PLAYGROUND</small></div></div>
       <div className="topbar-divider" />
       <div className="document-title"><span className="live-dot" /><span>PNG-объекты · 9:16</span><span className="save-pill">Локально</span></div>
       <div className="topbar-actions">
