@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties, FormEvent, ReactNode } from 'react'
 import { AudioEngine } from './audio/AudioEngine'
 import SimulationViewport, { type SceneController } from './components/SimulationViewport'
 import CollectionEditor from './components/CollectionEditor'
@@ -498,12 +498,55 @@ function LandingPage() {
       <div className="landing-preview" aria-label="Превью редактора BallPlay"><div className="preview-top"><span className="preview-dot" /><span className="preview-dot" /><span className="preview-dot" /><span className="preview-title">ballplay / симуляция 01</span><span className="preview-live">● LIVE</span></div><div className="preview-scene"><div className="preview-arena"><span className="preview-object object-one">🐱</span><span className="preview-object object-two">🐸</span><span className="preview-object object-three">🐱</span><span className="preview-spark">✦</span></div><div className="preview-caption">ТВОЯ ИДЕЯ — ТВОЯ СИМУЛЯЦИЯ</div></div><div className="preview-controls"><span>◉ Запись</span><span>Ⅱ Пауза</span><span>⟳ Сброс</span><div className="preview-wave"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></div></div>
     </section>
     <section className="landing-features" id="features"><div className="landing-section-heading"><span>СОЗДАВАЙ СВОИ ПРАВИЛА</span><h2>Из картинки — в симуляцию</h2></div><div className="landing-feature-grid"><article><b>01</b><h3>Твои персонажи</h3><p>Загружай PNG с прозрачным фоном и собирай собственные коллекции уровней.</p></article><article><b>02</b><h3>Физика и слияния</h3><p>Объекты падают, сталкиваются и объединяются. Настраивай движение под свой стиль.</p></article><article><b>03</b><h3>Видео для соцсетей</h3><p>Записывай вертикальные симуляции 9:16 и делись готовыми роликами.</p></article></div></section>
-    <section className="landing-subscribe" id="subscribe"><div className="payment-copy"><div className="landing-eyebrow"><span /> РАННИЙ ДОСТУП</div><h2>Попробуй BallPlay<br />за <em>1 рубль</em></h2><p>Оплати доступ и открой редактор. Создавай коллекции, настраивай физику и записывай свои первые симуляции.</p></div><div className="payment-card"><div className="payment-card-head"><span>СТАРТ</span><strong>1 ₽</strong><small>тестовая цена доступа</small></div><div className="payment-methods"><button className="payment-method active" type="button" disabled>Банковской картой</button><button className="payment-method tpay" type="button" disabled><b>⬡ PAY</b><span>Кэшбэк до 30%</span><i>i</i></button></div><div className="payment-option"><span>При оплате данные карты сохранятся</span><b>?</b></div><label className="receipt-option"><span>Отправить квитанцию на E-mail</span><input type="checkbox" disabled /><i /></label><div className="payment-security"><span>▣<small>Secure<br />Connection</small></span><span>Verified by<br /><b>VISA</b></span><span>Mastercard<br />SecureCode</span><span>▣ MIR</span></div><div className="payment-provider">Secured by <b>◉ CloudPayments</b></div><button className="payment-submit" type="button" disabled>Платёжная система подключается</button></div></section>
+    <section className="landing-subscribe" id="subscribe"><div className="payment-copy"><div className="landing-eyebrow"><span /> РАННИЙ ДОСТУП</div><h2>Попробуй BallPlay<br />за <em>1 рубль</em></h2><p>Оплати доступ и открой редактор. Создавай коллекции, настраивай физику и записывай свои первые симуляции.</p></div><div className="payment-card"><div className="payment-methods"><button className="payment-method active" type="button" disabled>Банковской картой</button><button className="payment-method tpay" type="button" disabled><b>⬡ PAY</b><span>Кэшбэк до 30%</span><i>i</i></button></div><div className="payment-option"><span>При оплате данные карты сохранятся</span><b>?</b></div><label className="receipt-option"><span>Отправить квитанцию на E-mail</span><input type="checkbox" disabled /><i /></label><div className="payment-security"><span>▣<small>Secure<br />Connection</small></span><span>Verified by<br /><b>VISA</b></span><span>Mastercard<br />SecureCode</span><span>▣ MIR</span></div><div className="payment-provider">Secured by <b>◉ CloudPayments</b></div><button className="payment-submit" type="button" disabled>Платёжная система подключается</button></div></section>
     <footer className="landing-footer"><a className="landing-brand" href="#top"><span className="landing-mark">✳</span> ball<span>play</span></a><span>Твори. Запускай. Залипай.</span><span>© BallPlay</span></footer>
   </main>
 }
 
+type AdminUser = { id: string; email: string; created_at: string; subscription_status: string; last_payment_status: string | null }
+
+function AdminPanel() {
+  const [authenticated, setAuthenticated] = useState(false)
+  const [checking, setChecking] = useState(true)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [loading, setLoading] = useState(false)
+  const [query, setQuery] = useState('')
+  const api = async (url: string, init?: RequestInit) => {
+    const response = await fetch(url, { ...init, credentials: 'include', headers: { 'content-type': 'application/json', ...init?.headers } })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.error || 'Не удалось выполнить запрос.')
+    return result
+  }
+  const loadUsers = useCallback(async () => {
+    setLoading(true); setError('')
+    try { const result = await api('/api/admin/users'); setUsers(result.users) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Ошибка загрузки пользователей.') }
+    finally { setLoading(false) }
+  }, [])
+  useEffect(() => {
+    void api('/api/admin/me').then(() => { setAuthenticated(true); return loadUsers() }).catch(() => undefined).finally(() => setChecking(false))
+  }, [loadUsers])
+  const login = async (event: FormEvent) => {
+    event.preventDefault(); setError('')
+    try { await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setAuthenticated(true); setPassword(''); await loadUsers() }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось войти.') }
+  }
+  const changeSubscription = async (user: AdminUser, status: string) => {
+    try { await api(`/api/admin/users/${user.id}/subscription`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadUsers() }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось обновить подписку.') }
+  }
+  const logout = async () => { await api('/api/admin/logout', { method: 'POST' }).catch(() => undefined); setAuthenticated(false); setUsers([]) }
+  if (checking) return <main className="admin-page"><div className="admin-card">Проверка сессии…</div></main>
+  if (!authenticated) return <main className="admin-page"><form className="admin-card admin-login" onSubmit={login}><a className="landing-brand" href="/"><span className="landing-mark">✳</span> ball<span>play</span></a><p className="admin-kicker">ПАНЕЛЬ УПРАВЛЕНИЯ</p><h1>Вход администратора</h1><label>Логин<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label><label>Пароль<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error && <p className="admin-error">{error}</p>}<button className="admin-primary">Войти</button></form></main>
+  const filtered = users.filter((user) => user.email.toLowerCase().includes(query.toLowerCase()))
+  return <main className="admin-page"><header className="admin-header"><a className="landing-brand" href="/"><span className="landing-mark">✳</span> ball<span>play</span></a><div><span>Администрирование</span><button onClick={() => void loadUsers()} disabled={loading}>Обновить</button><button onClick={() => void logout()}>Выйти</button></div></header><section className="admin-content"><div className="admin-heading"><div><p className="admin-kicker">ПОЛЬЗОВАТЕЛИ И ДОСТУП</p><h1>Панель управления</h1><p>Всего аккаунтов: <b>{users.length}</b></p></div><input className="admin-search" placeholder="Найти по e-mail" value={query} onChange={(event) => setQuery(event.target.value)} /></div>{error && <p className="admin-error">{error}</p>}<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Пользователь</th><th>Создан</th><th>Последняя оплата</th><th>Подписка</th><th>Управление</th></tr></thead><tbody>{filtered.map((user) => <tr key={user.id}><td>{user.email}</td><td>{new Date(user.created_at).toLocaleDateString('ru-RU')}</td><td>{user.last_payment_status || 'Нет платежей'}</td><td><span className={`admin-status ${user.subscription_status}`}>{user.subscription_status}</span></td><td><select aria-label={`Подписка ${user.email}`} value={user.subscription_status} onChange={(event) => void changeSubscription(user, event.target.value)}><option value="inactive">Неактивна</option><option value="active">Активна</option><option value="expired">Истекла</option><option value="cancelled">Отменена</option></select></td></tr>)}{filtered.length === 0 && <tr><td colSpan={5} className="admin-empty">{loading ? 'Загружаю…' : 'Пользователи не найдены'}</td></tr>}</tbody></table></div></section></main>
+}
+
 export default function App() {
+  if (window.location.pathname === '/admin') return <AdminPanel />
   const isEditorRoute = window.location.pathname === '/editor'
   if (isEditorRoute) return <EditorApp />
   return <LandingPage />
