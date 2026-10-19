@@ -60,6 +60,7 @@ function EditorApp() {
   const recordedVideoRef = useRef<HTMLVideoElement | null>(null)
   const recordingSpawnTimerRef = useRef<number | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
+  const recordingActiveRef = useRef(false)
   const recordingAudioTrackRef = useRef<MediaStreamTrack | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
   const [selected, setSelected] = useState<ObjectDefinition | null>(null)
@@ -118,6 +119,7 @@ function EditorApp() {
   }, [])
   const registerSelection = useCallback((object: ObjectDefinition | null) => setSelected(object ? { ...object } : null), [])
   const syncSceneState = useCallback(() => {
+    if (recordingActiveRef.current) return
     if (!controller) return
     const objects = controller.getObjects().map((item) => ({ ...item.definition }))
     setLayerItems(objects)
@@ -186,6 +188,7 @@ function EditorApp() {
       recordedChunksRef.current = []
       recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data) }
       recorder.onerror = () => {
+        recordingActiveRef.current = false
         if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
         recordingSpawnTimerRef.current = null
         setRecording(false)
@@ -196,6 +199,7 @@ function EditorApp() {
         recorderRef.current = null
       }
       recorder.onstop = () => {
+        recordingActiveRef.current = false
         if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
         recordingSpawnTimerRef.current = null
         const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'video/webm' })
@@ -217,7 +221,8 @@ function EditorApp() {
         window.setTimeout(() => { if (recordedVideoUrl !== url) URL.revokeObjectURL(url) }, 60_000)
       }
       recorderRef.current = recorder
-      recorder.start(250)
+      recordingActiveRef.current = true
+      recorder.start(1000)
       setRecording(true)
       const firstLevel = collection?.levels.find((level) => level.image && level.level === 1)
       if (firstLevel) {
