@@ -300,6 +300,19 @@ export default function App() {
     const level = collections.find((item) => item.id === id)?.levels.find((item) => item.id === levelId)
     if (level && patch.mergeSoundVolume !== undefined) sound.setMergeSoundVolume(id, level.level, patch.mergeSoundVolume)
     if (level && patch.mergeSoundRate !== undefined) sound.setMergeSoundRate(id, level.level, patch.mergeSoundRate)
+    // Keep already spawned PNG instances valid when their collection settings
+    // change. Only the physical shell/mass is updated; the existing image
+    // resource is preserved, so resizing cannot invalidate loaded textures.
+    if (controller && level && (patch.size !== undefined || patch.mass !== undefined)) {
+      for (const item of controller.getObjects()) {
+        if (item.definition.collectionId !== id || item.definition.level !== level.level) continue
+        controller.updateObject(item.definition.id, {
+          ...(patch.size !== undefined ? { radius: patch.size / 2 } : {}),
+          ...(patch.mass !== undefined ? { mass: patch.mass } : {}),
+        })
+      }
+      syncSceneState()
+    }
     commitCollection(id, (collection) => ({ ...collection, levels: collection.levels.map((item) => item.id === levelId ? { ...item, ...patch } : item) }))
   }
   const uploadCollectionImage = async (id: string, levelId: string, file: File) => {
