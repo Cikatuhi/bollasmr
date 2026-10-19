@@ -382,6 +382,11 @@ export class PixiSceneRenderer {
         graphics.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ color, width, alpha })
       }
     }
+    const drawContinuous = (graphics: Graphics, width: number, alpha: number, color: number) => {
+      graphics.moveTo(path[0]!.x, path[0]!.y)
+      for (let index = 1; index < path.length; index += 1) graphics.lineTo(path[index]!.x, path[index]!.y)
+      graphics.stroke({ color, width, alpha })
+    }
     // Draw one continuous dark under-stroke first. It hides tiny joins between
     // gradient segments and gives the arena a clean, designed edge at any
     // zoom level.
@@ -390,8 +395,8 @@ export class PixiSceneRenderer {
     this.arena.stroke({ color: 0x11131f, width: geometry.strokeWidth + 3.5, alpha: 0.95 })
     // A broad low-alpha pass gives the line a soft glow without a per-frame
     // filter allocation.  The crisp pass remains selectable as a static layer.
-    drawSegments(this.arenaGlow, geometry.strokeWidth * 7, 0.12)
-    drawSegments(this.arenaGlow, geometry.strokeWidth * 3, 0.2)
+    drawContinuous(this.arenaGlow, geometry.strokeWidth * 7, 0.10, 0xffb52f)
+    drawContinuous(this.arenaGlow, geometry.strokeWidth * 3, 0.16, 0xffe16a)
     drawSegments(this.arena, geometry.strokeWidth, 0.98)
   }
 
