@@ -54,6 +54,7 @@ export default function App() {
   const [recordedDuration, setRecordedDuration] = useState(0)
   const [recordedCurrentTime, setRecordedCurrentTime] = useState(0)
   const recordedVideoRef = useRef<HTMLVideoElement | null>(null)
+  const recordingSpawnTimerRef = useRef<number | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const recordingAudioTrackRef = useRef<MediaStreamTrack | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
@@ -181,6 +182,8 @@ export default function App() {
       recordedChunksRef.current = []
       recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data) }
       recorder.onerror = () => {
+        if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
+        recordingSpawnTimerRef.current = null
         setRecording(false)
         setRecordingError('Не удалось записать видео. Попробуй ещё раз.')
         videoStream?.getTracks().forEach((track) => track.stop())
@@ -189,6 +192,8 @@ export default function App() {
         recorderRef.current = null
       }
       recorder.onstop = () => {
+        if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
+        recordingSpawnTimerRef.current = null
         const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'video/webm' })
         recordedChunksRef.current = []
         videoStream?.getTracks().forEach((track) => track.stop())
@@ -210,6 +215,17 @@ export default function App() {
       recorderRef.current = recorder
       recorder.start(250)
       setRecording(true)
+      const firstLevel = collection?.levels.find((level) => level.image && level.level === 1)
+      if (firstLevel) {
+        recordingSpawnTimerRef.current = window.setInterval(() => {
+          if (sceneController.getObjects().length >= MAX_OBJECTS) return
+          const imageSrc = URL.createObjectURL(firstLevel.image!)
+          void sceneController.addDefinition(makeLevelDefinition(collection!, firstLevel, imageSrc)).then((item) => {
+            if (!item) URL.revokeObjectURL(imageSrc)
+            syncSceneState()
+          }).catch(() => URL.revokeObjectURL(imageSrc))
+        }, 900)
+      }
     } catch (error) {
       videoStream?.getTracks().forEach((track) => track.stop())
       if (recordingAudioTrackRef.current) sound.releaseRecordingTrack(recordingAudioTrackRef.current)
@@ -223,6 +239,7 @@ export default function App() {
   useEffect(() => () => {
     const recorder = recorderRef.current
     if (recorder?.state === 'recording') recorder.stop()
+    if (recordingSpawnTimerRef.current !== null) window.clearInterval(recordingSpawnTimerRef.current)
     if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl)
   }, [recordedVideoUrl])
 
