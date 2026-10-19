@@ -148,6 +148,48 @@ describe('SimulationScene', () => {
     scene.destroy()
   })
 
+  it('uses a continuous circular shell for an enlarged asymmetric PNG in the entrance', () => {
+    const size = 12
+    const alpha = new Uint8Array(size * size)
+    for (let y = 2; y < 6; y += 1) for (let x = 0; x < 10; x += 1) alpha[y * size + x] = 255
+    for (let y = 6; y < 10; y += 1) for (let x = 0; x < 6; x += 1) alpha[y * size + x] = 255
+    const imageGeometry = imageCollisionGeometryFromAlpha(size, size, size, size, alpha)
+    const scene = new SimulationScene()
+    scene.initializeArena()
+
+    const incoming = scene.spawnFromEntrance(makeDefinition('image', 'large-asymmetric-png', {
+      visual: 'image', imageGeometry, useImageOutline: true, radius: 40,
+    }))!
+    expect(incoming.body.bounds.min.x).toBeGreaterThanOrEqual(ARENA_NECK.left + 10 - 0.01)
+    expect(incoming.body.bounds.max.x).toBeLessThanOrEqual(ARENA_NECK.right - 10 + 0.01)
+    expect(incoming.body.position.y + 40).toBeLessThan(0)
+    expect(incoming.body.parts).toHaveLength(1)
+    scene.destroy()
+  })
+
+  it('retains an enlarged irregular PNG collision shell inside the bowl', () => {
+    const size = 24
+    const alpha = new Uint8Array(size * size)
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        const dx = (x + 0.5 - 12) / 9
+        const dy = (y + 0.5 - 14) / 8
+        if (dx * dx + dy * dy < 1 || (y < 12 && (x < 8 || x > 15))) alpha[y * size + x] = 255
+      }
+    }
+    const geometry = imageCollisionGeometryFromAlpha(size, size, size, size, alpha)
+    const scene = new SimulationScene()
+    scene.initializeArena()
+    const object = scene.spawnFromEntrance(makeDefinition('image', 'irregular-cat-outline', {
+      radius: 38, imageGeometry: geometry, useImageOutline: true, mass: 1,
+    }))!
+
+    for (let frame = 0; frame < 1800; frame += 1) scene.step(1000 / 60)
+    expect(object.body.position.y).toBeLessThan(ARENA_CENTER.y + ARENA_RADIUS + 30)
+    expect(object.body.position.y).toBeLessThan(SCENE_HEIGHT - 80)
+    scene.destroy()
+  }, 30000)
+
   it('keeps an entered object from escaping back through the open entrance', () => {
     const scene = new SimulationScene()
     scene.initializeArena()

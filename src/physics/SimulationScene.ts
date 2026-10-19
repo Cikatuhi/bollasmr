@@ -118,23 +118,48 @@ export class SimulationScene {
    * this keeps quick consecutive uploads from spawning inside one another.
    */
   spawnFromEntrance(definition: ObjectDefinition): SceneObject | undefined {
-    const x = ARENA_CENTER.x
     const radius = Math.max(1, definition.radius ?? 24)
+    // A silhouette may be asymmetric, and Matter can rotate it while queued
+    // above the inlet. Place it at the inlet center and use the actual Matter
+    // bounds (including any angled/compound vertices) for safe stacking.
+    const x = ARENA_CENTER.x
     // Start well above the visible canvas. The object is already in motion
     // before it crosses the frame edge and reaches the chute entrance.
     let y = ARENA_NECK.top - radius - ENTRANCE_DROP_DISTANCE
     const gap = 12
+    const candidate = createPhysicsBody(definition, x, y, {
+      density: definition.density ?? 0.002,
+      restitution: definition.restitution ?? this.settings.restitution,
+      friction: OBJECT_SURFACE_FRICTION,
+      frictionAir: OBJECT_FRICTION_AIR,
+      slop: 0.05,
+      sleepThreshold: 90,
+    })
+    const candidateHalfWidth = (candidate.bounds.max.x - candidate.bounds.min.x) / 2
+    const candidateHalfHeight = (candidate.bounds.max.y - candidate.bounds.min.y) / 2
+    const candidateCenterOffsetX = (candidate.bounds.min.x + candidate.bounds.max.x) / 2 - candidate.position.x
+    const candidateCenterOffsetY = (candidate.bounds.min.y + candidate.bounds.max.y) / 2 - candidate.position.y
+    const inletHalfWidth = (ARENA_NECK.right - ARENA_NECK.left) / 2 - ARENA_WALL_THICKNESS
+    if (candidateHalfWidth > inletHalfWidth) {
+      // Saved sizes can exceed the current editor limit; do not inject a body
+      // that physically cannot pass through the opening.
+      return undefined
+    }
+    const placementX = ARENA_CENTER.x - candidateCenterOffsetX
+    Matter.Body.setPosition(candidate, { x: placementX, y })
+    Matter.Composite.remove(this.engine.world, candidate)
+    // The probe is intentionally never registered in the scene or engine.
 
     for (const object of this.objects) {
-      const otherRadius = Math.max(1, object.definition.radius ?? 24)
-      const sameLane = Math.abs(object.body.position.x - x) < radius + otherRadius + 4
-      const stillEntering = object.body.position.y - otherRadius < ARENA_NECK.shoulderY + otherRadius
+      const otherBounds = object.body.bounds
+      const sameLane = Math.abs(object.body.position.x - placementX) < candidateHalfWidth + (otherBounds.max.x - otherBounds.min.x) / 2 + 4
+      const stillEntering = otherBounds.min.y < ARENA_NECK.shoulderY + (otherBounds.max.y - otherBounds.min.y)
       if (sameLane && stillEntering) {
-        y = Math.min(y, object.body.position.y - otherRadius - radius - gap)
+        y = Math.min(y, otherBounds.min.y - candidateHalfHeight - candidateCenterOffsetY - gap - 1)
       }
     }
 
-    const object = this.addObject(definition, x, y)
+    const object = this.addObject(definition, placementX, y)
     if (object) Body.setVelocity(object.body, { x: 0, y: ENTRANCE_INITIAL_SPEED })
     return object
   }

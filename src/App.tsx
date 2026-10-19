@@ -8,6 +8,10 @@ import { DEFAULT_RESTITUTION, type ObjectDefinition } from './objects/definition
 import { createImageCollisionGeometry, MAX_COLLISION_PARTS, type ImageCollisionGeometry } from './objects/imageCollisionGeometry'
 import { MAX_OBJECTS } from './physics/SimulationScene'
 
+// PNGs need time to clear the narrow entrance. At 10 objects/sec they stack
+// faster than gravity can carry them into the bowl, especially at large sizes.
+const RECORDING_SPAWN_INTERVAL_MS = 500
+
 const pretty = (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
@@ -224,7 +228,7 @@ export default function App() {
             if (!item) URL.revokeObjectURL(imageSrc)
             syncSceneState()
           }).catch(() => URL.revokeObjectURL(imageSrc))
-        }, 100)
+        }, RECORDING_SPAWN_INTERVAL_MS)
       }
     } catch (error) {
       videoStream?.getTracks().forEach((track) => track.stop())
