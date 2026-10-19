@@ -110,6 +110,7 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .simulation-host canvas { display: block; max-width: 100%; max-height: 100%; border: 1px solid #3a3a48; border-radius: 21px; box-shadow: 0 14px 38px #0006; touch-action: none; cursor: crosshair; }
 .stage-top-label, .stage-bottom-label { position: absolute; left: 12px; right: 12px; z-index: 1; pointer-events: none; display: flex; align-items: center; }
 .stage-top-label { top: 12px; gap: 6px; color: #9295a6; font: 8px 'DM Mono', monospace; letter-spacing: .7px; }.stage-live { display: block; width: 5px; height: 5px; border-radius: 50%; background: #68dbb4; box-shadow: 0 0 7px #68dbb4a0; }
+.stage-watermark { position: absolute; top: 73%; left: 0; right: 0; z-index: 1; color: #ffffff24; font: 700 clamp(11px, 2.8vw, 18px) 'DM Mono', monospace; letter-spacing: .18em; text-align: center; white-space: nowrap; text-shadow: 0 1px 10px #000; pointer-events: none; user-select: none; }
 .stage-bottom-label { bottom: 12px; justify-content: center; gap: 6px; color: #777a8a; font: 8px 'DM Mono', monospace; text-shadow: 0 1px 5px #000; }
 .canvas-caption { height: 29px; flex: 0 0 29px; display: flex; align-items: center; gap: 7px; color: #7d808e; font-size: 9px; }.caption-icon { color: #a29aff; display: flex; }.canvas-caption i { color: #545662; font-style: normal; padding: 0 3px; }
 .timeline-bar { height: 39px; flex: 0 0 39px; border-top: 1px solid #272831; display: flex; align-items: center; gap: 10px; padding: 0 18px; color: #858794; }
