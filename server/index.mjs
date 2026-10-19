@@ -7,7 +7,8 @@ import pg from 'pg'
 
 const { Pool } = pg
 const root = path.dirname(fileURLToPath(import.meta.url))
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'require' ? { rejectUnauthorized: false } : undefined })
+const databaseUrl = process.env.DATABASE_URL || `postgresql://${encodeURIComponent(process.env.DB_USER || '')}:${encodeURIComponent(process.env.DB_PASSWORD || '')}@${process.env.DB_HOST || '127.0.0.1'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'default_db'}`
+const pool = new Pool({ connectionString: databaseUrl, ssl: process.env.DATABASE_SSL === 'require' ? { rejectUnauthorized: false } : undefined })
 const port = Number(process.env.API_PORT || 3001)
 const cookieName = 'ballplay_session'
 const json = (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)) }
