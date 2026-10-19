@@ -1,0 +1,32 @@
+import http from 'node:http'
+import crypto from 'node:crypto'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import pg from 'pg'
+
+const { Pool } = pg
+const root = path.dirname(fileURLToPath(import.meta.url))
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'require' ? { rejectUnauthorized: false } : undefined })
+const port = Number(process.env.API_PORT || 3001)
+const cookieName = 'ballplay_session'
+const json = (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)) }
+const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex')
+const passwordHash = async (password, salt = crypto.randomBytes(16).toString('hex')) => new Promise((resolve, reject) => crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(`${salt}:${key.toString('hex')}`)))
+const passwordMatches = async (password, encoded) => { const [salt, expected] = encoded.split(':'); const actual = await passwordHash(password, salt); return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(`${salt}:${expected}`)) }
+const body = async (req) => { let data = ''; for await (const chunk of req) data += chunk; if (data.length > 16_384) throw new Error('payload too large'); return JSON.parse(data || '{}') }
+const sessionUser = async (req) => { const match = req.headers.cookie?.match(new RegExp(`${cookieName}=([^;]+)`)); if (!match) return null; const result = await pool.query('SELECT u.id, u.email, s.expires_at, COALESCE(sub.status, \'inactive\') AS subscription_status FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN subscriptions sub ON sub.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at > now()', [tokenHash(match[1])]); return result.rows[0] || null }
+const setSession = async (res, userId) => { const token = crypto.randomBytes(32).toString('base64url'); await pool.query('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval \'30 days\')', [tokenHash(token), userId]); res.setHeader('set-cookie', `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`) }
+const server = http.createServer(async (req, res) => {
+  try {
+    if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': process.env.PUBLIC_ORIGIN || '*', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'content-type' }); return res.end() }
+    if (req.url === '/api/health') return json(res, 200, { ok: true })
+    if (req.url === '/api/auth/register' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const password = String(input.password || ''); if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return json(res, 400, { error: 'Введите корректный e-mail и пароль не короче 8 символов.' }); const id = crypto.randomUUID(); const hash = await passwordHash(password); try { await pool.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)', [id, email, hash]); await pool.query('INSERT INTO subscriptions(user_id) VALUES($1)', [id]); await setSession(res, id); return json(res, 201, { user: { id, email }, subscriptionStatus: 'inactive' }) } catch (error) { if (error.code === '23505') return json(res, 409, { error: 'Такой e-mail уже зарегистрирован.' }); throw error } }
+    if (req.url === '/api/auth/login' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const result = await pool.query('SELECT id,email,password_hash FROM users WHERE email=$1', [email]); if (!result.rows[0] || !(await passwordMatches(String(input.password || ''), result.rows[0].password_hash))) return json(res, 401, { error: 'Неверный e-mail или пароль.' }); await setSession(res, result.rows[0].id); const subscription = await pool.query('SELECT COALESCE(status, \'inactive\') AS status FROM subscriptions WHERE user_id=$1', [result.rows[0].id]); return json(res, 200, { user: { id: result.rows[0].id, email }, subscriptionStatus: subscription.rows[0]?.status || 'inactive' }) }
+    if (req.url === '/api/auth/me' && req.method === 'GET') { const user = await sessionUser(req); return user ? json(res, 200, { user: { id: user.id, email: user.email }, subscriptionStatus: user.subscription_status }) : json(res, 401, { error: 'Не авторизован.' }) }
+    if (req.url === '/api/payment/webhook' && req.method === 'POST') return json(res, 501, { error: 'Платёжный провайдер ещё не подключён.' })
+    if (req.url === '/api/schema.sql' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'text/plain' }); return res.end(await fs.readFile(path.join(root, 'schema.sql'), 'utf8')) }
+    return json(res, 404, { error: 'Not found' })
+  } catch (error) { console.error(error); return json(res, 500, { error: 'Внутренняя ошибка сервера.' }) }
+})
+server.listen(port, '127.0.0.1', () => console.log(`BallPlay API listening on 127.0.0.1:${port}`))
