@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS payments (
   provider_payment_id TEXT UNIQUE,
   amount_minor INTEGER NOT NULL,
   currency TEXT NOT NULL DEFAULT 'RUB',
+  plan_code TEXT,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed', 'refunded')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   paid_at TIMESTAMPTZ
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   status TEXT NOT NULL DEFAULT 'inactive' CHECK (status IN ('inactive', 'active', 'expired', 'cancelled')),
   provider TEXT,
   provider_subscription_id TEXT,
+  plan_code TEXT,
   starts_at TIMESTAMPTZ,
   ends_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
