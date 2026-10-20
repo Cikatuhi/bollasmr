@@ -14,6 +14,13 @@ const cookieName = 'ballplay_session'
 const adminCookieName = 'ballplay_admin_session'
 const adminSessions = new Map()
 const adminLoginAttempts = new Map()
+let settingsTableReady
+const ensureSettingsTable = () => settingsTableReady ||= pool.query(`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+const getConsentPopupSetting = async () => {
+  await ensureSettingsTable()
+  const result = await pool.query(`SELECT value FROM app_settings WHERE key='consent_popup_enabled'`)
+  return result.rows[0]?.value ?? true
+}
 const json = (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)) }
 const tokenHash = (token) => crypto.createHash('sha256').update(token).digest('hex')
 const passwordHash = async (password, salt = crypto.randomBytes(16).toString('hex')) => new Promise((resolve, reject) => crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(`${salt}:${key.toString('hex')}`)))
@@ -28,6 +35,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': process.env.PUBLIC_ORIGIN || '*', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'content-type' }); return res.end() }
     if (req.url === '/api/health') return json(res, 200, { ok: true })
+    if (req.url === '/api/public/settings' && req.method === 'GET') return json(res, 200, { consentPopupEnabled: await getConsentPopupSetting() })
     if (req.url === '/api/admin/login' && req.method === 'POST') {
       if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) return json(res, 503, { error: 'Администратор не настроен на сервере.' })
       const ip = req.socket.remoteAddress || 'unknown'; const now = Date.now(); const recent = (adminLoginAttempts.get(ip) || []).filter((time) => now - time < 15 * 60 * 1000)
@@ -39,6 +47,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url === '/api/admin/logout' && req.method === 'POST') { const match = req.headers.cookie?.match(new RegExp(`${adminCookieName}=([^;]+)`)); if (match) adminSessions.delete(tokenHash(match[1])); res.setHeader('set-cookie', `${adminCookieName}=; Path=/api/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0`); return json(res, 200, { ok: true }) }
     if (req.url === '/api/admin/me' && req.method === 'GET') return adminSession(req) ? json(res, 200, { ok: true }) : json(res, 401, { error: 'Не авторизован.' })
+    if (req.url === '/api/admin/settings' && req.method === 'GET') {
+      if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
+      return json(res, 200, { consentPopupEnabled: await getConsentPopupSetting() })
+    }
+    if (req.url === '/api/admin/settings' && req.method === 'PATCH') {
+      if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
+      const input = await body(req)
+      if (typeof input.consentPopupEnabled !== 'boolean') return json(res, 400, { error: 'Ожидалось логическое значение consentPopupEnabled.' })
+      await ensureSettingsTable()
+      await pool.query(`INSERT INTO app_settings(key,value,updated_at) VALUES('consent_popup_enabled',$1::jsonb,now()) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, [JSON.stringify(input.consentPopupEnabled)])
+      return json(res, 200, { consentPopupEnabled: input.consentPopupEnabled })
+    }
     if (req.url === '/api/admin/users' && req.method === 'GET') {
       if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
       const result = await pool.query(`SELECT u.id, u.email, u.created_at, COALESCE(s.status, 'inactive') AS subscription_status, s.starts_at, s.ends_at, (SELECT p.status FROM payments p WHERE p.user_id=u.id ORDER BY p.created_at DESC LIMIT 1) AS last_payment_status FROM users u LEFT JOIN subscriptions s ON s.user_id=u.id ORDER BY u.created_at DESC LIMIT 500`)

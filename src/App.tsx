@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, FormEvent, ReactNode } from 'react'
+import type { CSSProperties, FormEvent, MouseEvent, ReactNode } from 'react'
 import { AudioEngine } from './audio/AudioEngine'
 import SimulationViewport, { type SceneController } from './components/SimulationViewport'
 import CollectionEditor from './components/CollectionEditor'
@@ -515,14 +515,25 @@ function EditorApp() {
 }
 
 function LandingPage() {
+  const [consentEnabled, setConsentEnabled] = useState(true)
+  const [consentOpen, setConsentOpen] = useState(false)
+  const [accepted, setAccepted] = useState([false, false])
+  useEffect(() => { void fetch('/api/public/settings').then((response) => response.ok ? response.json() : null).then((data) => { if (typeof data?.consentPopupEnabled === 'boolean') setConsentEnabled(data.consentPopupEnabled) }).catch(() => undefined) }, [])
+  const startAccess = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!consentEnabled) return
+    event.preventDefault()
+    setAccepted([false, false])
+    setConsentOpen(true)
+  }
   return <main className="landing-page">
-    <nav className="landing-nav"><a className="landing-brand" href="#top"><span className="landing-mark">✳</span> ball<span>play</span></a><a className="landing-nav-link" href="#features">Возможности</a><a className="landing-nav-cta" href="#subscribe">Получить доступ <span>↗</span></a></nav>
+    <nav className="landing-nav"><a className="landing-brand" href="#top"><span className="landing-mark">✳</span> ball<span>play</span></a><a className="landing-nav-link" href="#features">Возможности</a><a className="landing-nav-cta" href="#subscribe" onClick={startAccess}>Получить доступ <span>↗</span></a></nav>
     <section className="landing-hero" id="top">
-      <div className="landing-copy"><div className="landing-eyebrow"><span /> ТВОРЧЕСКАЯ ПЛОЩАДКА ДЛЯ ВИРУСНЫХ ВИДЕО</div><h1>Залипательные симуляции.<br /><em>Твой следующий хит.</em></h1><p>Загружай свои картинки, сталкивай уровни и записывай физические симуляции для TikTok, Reels и Shorts — прямо в браузере.</p><a className="landing-primary" href="#subscribe">Попробовать за 1 ₽ <span>→</span></a><div className="landing-note">Разовый платёж · доступ к редактору после подтверждения оплаты</div></div>
+      <div className="landing-copy"><div className="landing-eyebrow"><span /> ТВОРЧЕСКАЯ ПЛОЩАДКА ДЛЯ ВИРУСНЫХ ВИДЕО</div><h1>Залипательные симуляции.<br /><em>Твой следующий хит.</em></h1><p>Загружай свои картинки, сталкивай уровни и записывай физические симуляции для TikTok, Reels и Shorts — прямо в браузере.</p><a className="landing-primary" href="#subscribe" onClick={startAccess}>Попробовать за 1 ₽ <span>→</span></a><div className="landing-note">Разовый платёж · доступ к редактору после подтверждения оплаты</div></div>
       <div className="landing-preview" aria-label="Превью редактора BallPlay"><div className="preview-top"><span className="preview-dot" /><span className="preview-dot" /><span className="preview-dot" /><span className="preview-title">ballplay / симуляция 01</span><span className="preview-live">● LIVE</span></div><div className="preview-scene"><div className="preview-arena"><span className="preview-object object-one">🐱</span><span className="preview-object object-two">🐸</span><span className="preview-object object-three">🐱</span><span className="preview-spark">✦</span></div><div className="preview-caption">ТВОЯ ИДЕЯ — ТВОЯ СИМУЛЯЦИЯ</div></div><div className="preview-controls"><span>◉ Запись</span><span>Ⅱ Пауза</span><span>⟳ Сброс</span><div className="preview-wave"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></div></div>
     </section>
     <section className="landing-features" id="features"><div className="landing-section-heading"><span>СОЗДАВАЙ СВОИ ПРАВИЛА</span><h2>Из картинки — в симуляцию</h2></div><div className="landing-feature-grid"><article><b>01</b><h3>Твои персонажи</h3><p>Загружай PNG с прозрачным фоном и собирай собственные коллекции уровней.</p></article><article><b>02</b><h3>Физика и слияния</h3><p>Объекты падают, сталкиваются и объединяются. Настраивай движение под свой стиль.</p></article><article><b>03</b><h3>Видео для соцсетей</h3><p>Записывай вертикальные симуляции 9:16 и делись готовыми роликами.</p></article></div></section>
     <section className="landing-subscribe" id="subscribe"><div className="payment-copy"><div className="landing-eyebrow"><span /> РАННИЙ ДОСТУП</div><h2>Попробуй BallPlay<br />за <em>1 рубль</em></h2><p>Оплати доступ и открой редактор. Создавай коллекции, настраивай физику и записывай свои первые симуляции.</p></div><div className="payment-card"><div className="payment-methods"><button className="payment-method active" type="button" disabled>Банковской картой</button><button className="payment-method tpay" type="button" disabled><b>⬡ PAY</b><span>Кэшбэк до 30%</span><i>i</i></button></div><div className="payment-option"><span>При оплате данные карты сохранятся</span><b>?</b></div><label className="receipt-option"><span>Отправить квитанцию на E-mail</span><input type="checkbox" disabled /><i /></label><div className="payment-security"><span>▣<small>Secure<br />Connection</small></span><span>Verified by<br /><b>VISA</b></span><span>Mastercard<br />SecureCode</span><span>▣ MIR</span></div><div className="payment-provider">Secured by <b>◉ CloudPayments</b></div><button className="payment-submit" type="button" disabled>Платёжная система подключается</button></div></section>
+    {consentOpen && <div className="consent-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConsentOpen(false) }}><section className="consent-dialog" role="dialog" aria-modal="true" aria-labelledby="consent-title"><button className="consent-close" type="button" aria-label="Закрыть" onClick={() => setConsentOpen(false)}>×</button><div className="consent-pointer">👇</div><h2 id="consent-title">Нужно подтвердить согласия</h2><div className="consent-items"><label className="consent-item"><input type="checkbox" checked={accepted[0]} onChange={(event) => setAccepted([event.target.checked, accepted[1]])} /><span>Я соглашаюсь на обработку персональных данных в целях регистрации и предоставления доступа к BallPlay.</span></label><label className="consent-item"><input type="checkbox" checked={accepted[1]} onChange={(event) => setAccepted([accepted[0], event.target.checked])} /><span>Я ознакомился(лась) с условиями предложения: разовый платёж составляет 1 ₽. Регулярные списания не предусмотрены.</span></label></div><a className="consent-policy-link" href="#subscribe" onClick={() => setConsentOpen(false)}>К предложению раннего доступа</a><button className="consent-submit" type="button" disabled={!accepted.every(Boolean)} onClick={() => { setConsentOpen(false); document.getElementById('subscribe')?.scrollIntoView({ behavior: 'smooth' }) }}>Продолжить</button><p className="consent-footnote">Платёжная система пока не подключена; оформить оплату сейчас нельзя.</p></section></div>}
     <footer className="landing-footer"><a className="landing-brand" href="#top"><span className="landing-mark">✳</span> ball<span>play</span></a><span>Твори. Запускай. Залипай.</span><span>© BallPlay</span></footer>
   </main>
 }
@@ -538,6 +549,8 @@ function AdminPanel() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState('')
+  const [consentPopupEnabled, setConsentPopupEnabled] = useState(true)
+  const [settingsLoading, setSettingsLoading] = useState(false)
   const api = async (url: string, init?: RequestInit) => {
     const response = await fetch(url, { ...init, credentials: 'include', headers: { 'content-type': 'application/json', ...init?.headers } })
     const result = await response.json().catch(() => ({}))
@@ -551,22 +564,28 @@ function AdminPanel() {
     finally { setLoading(false) }
   }, [])
   useEffect(() => {
-    void api('/api/admin/me').then(() => { setAuthenticated(true); return loadUsers() }).catch(() => undefined).finally(() => setChecking(false))
+    void api('/api/admin/me').then(async () => { setAuthenticated(true); const [_, settings] = await Promise.all([loadUsers(), api('/api/admin/settings')]); setConsentPopupEnabled(settings.consentPopupEnabled) }).catch(() => undefined).finally(() => setChecking(false))
   }, [loadUsers])
   const login = async (event: FormEvent) => {
     event.preventDefault(); setError('')
-    try { await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setAuthenticated(true); setPassword(''); await loadUsers() }
+    try { await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setAuthenticated(true); setPassword(''); const [_, settings] = await Promise.all([loadUsers(), api('/api/admin/settings')]); setConsentPopupEnabled(settings.consentPopupEnabled) }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось войти.') }
   }
   const changeSubscription = async (user: AdminUser, status: string) => {
     try { await api(`/api/admin/users/${user.id}/subscription`, { method: 'PATCH', body: JSON.stringify({ status }) }); await loadUsers() }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось обновить подписку.') }
   }
+  const saveConsentPopupSetting = async (enabled: boolean) => {
+    setSettingsLoading(true); setError('')
+    try { const result = await api('/api/admin/settings', { method: 'PATCH', body: JSON.stringify({ consentPopupEnabled: enabled }) }); setConsentPopupEnabled(result.consentPopupEnabled) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось сохранить настройку.') }
+    finally { setSettingsLoading(false) }
+  }
   const logout = async () => { await api('/api/admin/logout', { method: 'POST' }).catch(() => undefined); setAuthenticated(false); setUsers([]) }
   if (checking) return <main className="admin-page"><div className="admin-card">Проверка сессии…</div></main>
   if (!authenticated) return <main className="admin-page"><form className="admin-card admin-login" onSubmit={login}><a className="landing-brand" href="/"><span className="landing-mark">✳</span> ball<span>play</span></a><p className="admin-kicker">ПАНЕЛЬ УПРАВЛЕНИЯ</p><h1>Вход администратора</h1><label>Логин<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label><label>Пароль<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error && <p className="admin-error">{error}</p>}<button className="admin-primary">Войти</button></form></main>
   const filtered = users.filter((user) => user.email.toLowerCase().includes(query.toLowerCase()))
-  return <main className="admin-page"><header className="admin-header"><a className="landing-brand" href="/"><span className="landing-mark">✳</span> ball<span>play</span></a><div><span>Администрирование</span><button onClick={() => void loadUsers()} disabled={loading}>Обновить</button><button onClick={() => void logout()}>Выйти</button></div></header><section className="admin-content"><div className="admin-heading"><div><p className="admin-kicker">ПОЛЬЗОВАТЕЛИ И ДОСТУП</p><h1>Панель управления</h1><p>Всего аккаунтов: <b>{users.length}</b></p></div><input className="admin-search" placeholder="Найти по e-mail" value={query} onChange={(event) => setQuery(event.target.value)} /></div>{error && <p className="admin-error">{error}</p>}<div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Пользователь</th><th>Создан</th><th>Последняя оплата</th><th>Подписка</th><th>Управление</th></tr></thead><tbody>{filtered.map((user) => <tr key={user.id}><td>{user.email}</td><td>{new Date(user.created_at).toLocaleDateString('ru-RU')}</td><td>{user.last_payment_status || 'Нет платежей'}</td><td><span className={`admin-status ${user.subscription_status}`}>{user.subscription_status}</span></td><td><select aria-label={`Подписка ${user.email}`} value={user.subscription_status} onChange={(event) => void changeSubscription(user, event.target.value)}><option value="inactive">Неактивна</option><option value="active">Активна</option><option value="expired">Истекла</option><option value="cancelled">Отменена</option></select></td></tr>)}{filtered.length === 0 && <tr><td colSpan={5} className="admin-empty">{loading ? 'Загружаю…' : 'Пользователи не найдены'}</td></tr>}</tbody></table></div></section></main>
+  return <main className="admin-page"><header className="admin-header"><a className="landing-brand" href="/"><span className="landing-mark">✳</span> ball<span>play</span></a><div><span>Администрирование</span><button onClick={() => void loadUsers()} disabled={loading}>Обновить</button><button onClick={() => void logout()}>Выйти</button></div></header><section className="admin-content"><div className="admin-heading"><div><p className="admin-kicker">ПОЛЬЗОВАТЕЛИ И ДОСТУП</p><h1>Панель управления</h1><p>Всего аккаунтов: <b>{users.length}</b></p></div><input className="admin-search" placeholder="Найти по e-mail" value={query} onChange={(event) => setQuery(event.target.value)} /></div>{error && <p className="admin-error">{error}</p>}<section className="admin-settings-card"><div><p className="admin-kicker">ГЛАВНАЯ СТРАНИЦА</p><h2>Окно согласий перед предложением</h2><p>Показывать посетителям всплывающее окно с двумя обязательными чекбоксами при нажатии «Получить доступ».</p></div><label className="admin-switch"><input type="checkbox" checked={consentPopupEnabled} disabled={settingsLoading} onChange={(event) => void saveConsentPopupSetting(event.target.checked)} /><span>{settingsLoading ? 'Сохраняем…' : consentPopupEnabled ? 'Включено' : 'Выключено'}</span></label></section><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Пользователь</th><th>Создан</th><th>Последняя оплата</th><th>Подписка</th><th>Управление</th></tr></thead><tbody>{filtered.map((user) => <tr key={user.id}><td>{user.email}</td><td>{new Date(user.created_at).toLocaleDateString('ru-RU')}</td><td>{user.last_payment_status || 'Нет платежей'}</td><td><span className={`admin-status ${user.subscription_status}`}>{user.subscription_status}</span></td><td><select aria-label={`Подписка ${user.email}`} value={user.subscription_status} onChange={(event) => void changeSubscription(user, event.target.value)}><option value="inactive">Неактивна</option><option value="active">Активна</option><option value="expired">Истекла</option><option value="cancelled">Отменена</option></select></td></tr>)}{filtered.length === 0 && <tr><td colSpan={5} className="admin-empty">{loading ? 'Загружаю…' : 'Пользователи не найдены'}</td></tr>}</tbody></table></div></section></main>
 }
 
 export default function App() {
