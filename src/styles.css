@@ -194,3 +194,4 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .canvas-workspace { padding-top: 12px; }.stage-wrap { height: min(calc(100% - 40px), 730px); }.timeline-bar { height: 35px; flex-basis: 35px; padding: 0 12px; }
   .right-panel { order: 3; border: 0; border-top: 1px solid #292a32; min-height: 420px; }.inspector-tabs { padding: 0 14px; }.inspector-scroll { overflow: visible; }
 }
+.cloudpayments-blocks { min-height: 180px; margin-top: 18px; }.cloudpayments-blocks > span { display: block; padding: 36px 10px; color: #777482; text-align: center; font-size: 13px; }
