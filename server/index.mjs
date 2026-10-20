@@ -17,15 +17,25 @@ const adminSessions = new Map()
 const adminLoginAttempts = new Map()
 let settingsTableReady
 let paymentColumnsReady
-const ensurePaymentColumns = () => paymentColumnsReady ||= Promise.all([
-  pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS plan_code TEXT'),
-  pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_kind TEXT NOT NULL DEFAULT 'initial'"),
-  pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_code TEXT'),
-  pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS card_token TEXT'),
-  pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS next_charge_at TIMESTAMPTZ'),
-  pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS charge_attempt_at TIMESTAMPTZ'),
-  pool.query('CREATE INDEX IF NOT EXISTS subscriptions_due_idx ON subscriptions (next_charge_at) WHERE card_token IS NOT NULL'),
-])
+const ensurePaymentColumns = () => {
+  if (!paymentColumnsReady) {
+    paymentColumnsReady = (async () => {
+      await Promise.all([
+        pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS plan_code TEXT'),
+        pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_kind TEXT NOT NULL DEFAULT 'initial'"),
+        pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_code TEXT'),
+        pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS card_token TEXT'),
+        pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS next_charge_at TIMESTAMPTZ'),
+        pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS charge_attempt_at TIMESTAMPTZ'),
+      ])
+      await pool.query('CREATE INDEX IF NOT EXISTS subscriptions_due_idx ON subscriptions (next_charge_at) WHERE card_token IS NOT NULL')
+    })().catch((error) => {
+      paymentColumnsReady = undefined
+      throw error
+    })
+  }
+  return paymentColumnsReady
+}
 const ensureSettingsTable = () => settingsTableReady ||= pool.query(`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
 const getConsentPopupSetting = async () => {
   await ensureSettingsTable()
