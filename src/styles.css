@@ -206,3 +206,13 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .cloudpayments-blocks { min-height: 180px; margin-top: 18px; }.cloudpayments-blocks > span { display: block; padding: 36px 10px; color: #777482; text-align: center; font-size: 13px; }
 .cloudpayments-official { margin-top: 18px; padding-top: 16px; border-top: 1px solid #ffffff12; color: #bdb7ca; font-size: 12px; }.checkout-email-label,.checkout-account-form label { display: grid; gap: 7px; margin-top: 14px; color: #c9c4d2; font-size: 12px; }.checkout-email-label input,.checkout-account-form label input { width: 100%; min-height: 43px; padding: 0 12px; border: 1px solid #494454; border-radius: 9px; color: #f5f1ff; background: #17151d; font: inherit; }.checkout-account-form { margin-top: 18px; padding-top: 17px; border-top: 1px solid #ffffff12; }.checkout-account-form h3 { margin: 0; color: #f5f1ff; font-size: 17px; }.checkout-account-form > p { color: #aaa5b4; font-size: 12px; line-height: 1.5; }
 .cloudpayments-embed { min-height: 300px; margin-top: 18px; overflow: hidden; border-top: 1px solid #ffffff12; }
+
+/* Keep the CloudPayments form official, while matching the merchant checkout to the light reference. */
+.landing-subscribe { max-width: 1080px; padding: 40px; border: 0; border-radius: 34px; color: #292929; background: #f5f5f5; box-shadow: 0 18px 55px #0002; }
+.landing-subscribe .landing-eyebrow { color: #77727a; }
+.landing-subscribe .landing-eyebrow > span { background: #f39bb5; box-shadow: 0 0 12px #f39bb566; }
+.landing-subscribe h2 { color: #292929; }
+.landing-subscribe h2 em { color: #e982a2; }
+.payment-card { width: min(920px, 100%); padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.cloudpayments-embed { min-height: 650px; margin: 0 auto; overflow: visible; border: 0; }
+@media(max-width:800px) { .landing-subscribe { padding: 28px 18px; border-radius: 24px; }.cloudpayments-embed { min-height: 680px; } }

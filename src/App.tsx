@@ -519,6 +519,7 @@ function EditorApp() {
 type PaymentPlanCode = 'week' | 'threeDays' | 'day'
 type PaymentIntent = { invoiceId: string; accountId: string; email: string; publicId: string; amount: number; plan: { period: number; amount: number } }
 type CloudPaymentsBlocksOptions = { publicTerminalId: string; description: string; paymentSchema: 'Single'; amount: number; currency: string; language: string; externalId: string; accountId: string; tokenize: true; receiptEmail?: string }
+type CloudPaymentsBlocksCustomization = { appearance: { colors: { primaryButtonColor: string; primaryHoverButtonColor: string; primaryButtonTextColor: string; primaryButtonHoverTextColor: string; activeInputColor: string; inputBackground: string; inputColor: string; inputBorderColor: string; titleColor: string; textColor: string; errorColor: string; skeletonBackground: string }; borders: { radius: string } } }
 type CloudPaymentsBlocksApp = { mount: (element: HTMLElement) => void; unmount: () => void; on: (event: 'success' | 'fail', callback: (result: unknown) => void) => void }
 type PaymentConfig = { publicId: string; enabled: boolean }
 
@@ -552,7 +553,7 @@ function LandingPage() {
   useEffect(() => {
     const mountElement = paymentBlocksElementRef.current
     if (!paymentIntent || !cloudPaymentsReady || !mountElement || paymentConfirmed) return
-    const PaymentBlocks = (window as Window & { cp?: { PaymentBlocks?: new (options: CloudPaymentsBlocksOptions) => CloudPaymentsBlocksApp } }).cp?.PaymentBlocks
+    const PaymentBlocks = (window as Window & { cp?: { PaymentBlocks?: new (options: CloudPaymentsBlocksOptions, customization?: CloudPaymentsBlocksCustomization) => CloudPaymentsBlocksApp } }).cp?.PaymentBlocks
     if (!PaymentBlocks) { setPaymentMessage('Встроенная касса CloudPayments не загрузилась. Обновите страницу и попробуйте ещё раз.'); return }
     const recurring = paymentIntent.plan
     const blocks = new PaymentBlocks({
@@ -562,6 +563,17 @@ function LandingPage() {
       externalId: paymentIntent.invoiceId,
       accountId: paymentIntent.accountId,
       tokenize: true, ...(paymentIntent.email ? { receiptEmail: paymentIntent.email } : {}),
+    }, {
+      appearance: {
+        colors: {
+          primaryButtonColor: '#F39BB5', primaryHoverButtonColor: '#E982A2',
+          primaryButtonTextColor: '#FFFFFF', primaryButtonHoverTextColor: '#FFFFFF',
+          activeInputColor: '#E982A2', inputBackground: '#FFFFFF', inputColor: '#292929',
+          inputBorderColor: '#D9D9DD', titleColor: '#292929', textColor: '#292929',
+          errorColor: '#C83E53', skeletonBackground: '#F5F5F5',
+        },
+        borders: { radius: '24px' },
+      },
     })
     blocks.on('success', () => setPaymentMessage('Платёж принят CloudPayments. Подтверждаем оплату…'))
     blocks.on('fail', () => setPaymentMessage('CloudPayments не провёл платёж. Проверьте данные карты и попробуйте снова.'))
