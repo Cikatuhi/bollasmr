@@ -518,7 +518,7 @@ function EditorApp() {
 
 type PaymentPlanCode = 'week' | 'threeDays' | 'day'
 type PaymentIntent = { invoiceId: string; accountId: string; email: string; publicId: string; amount: number; plan: { period: number; amount: number } }
-type CloudPaymentsWidgetOptions = { publicTerminalId: string; description: string; paymentSchema: 'Single'; amount: number; currency: string; culture: string; skin: 'modern'; externalId: string; userInfo: { accountId: string; email: string }; tokenize: true; receiptEmail: string }
+type CloudPaymentsWidgetOptions = { publicTerminalId: string; description: string; paymentSchema: 'Single'; amount: number; currency: string; culture: string; skin: 'modern'; externalId: string; userInfo: { accountId: string; email?: string }; tokenize: true; receiptEmail?: string }
 type CloudPaymentsWidget = { start: (options: CloudPaymentsWidgetOptions) => Promise<unknown> }
 type PaymentConfig = { publicId: string; enabled: boolean }
 
@@ -531,13 +531,13 @@ function LandingPage() {
   const [accountMode, setAccountMode] = useState<'register' | 'login'>('register')
   const [accountEmail, setAccountEmail] = useState('')
   const [accountPassword, setAccountPassword] = useState('')
-  const [checkoutEmail, setCheckoutEmail] = useState('')
   const [paymentBusy, setPaymentBusy] = useState(false)
   const [paymentMessage, setPaymentMessage] = useState('')
   const [paymentIntent, setPaymentIntent] = useState<PaymentIntent | null>(null)
   const [paymentConfirmed, setPaymentConfirmed] = useState(false)
   const [checkoutAttempt, setCheckoutAttempt] = useState(0)
   const [cloudPaymentsReady, setCloudPaymentsReady] = useState(false)
+  const autoCheckoutRequestedRef = useRef(false)
   useEffect(() => {
     void fetch('/api/public/settings').then((response) => response.ok ? response.json() : null).then((data) => { if (typeof data?.consentPopupEnabled === 'boolean') setConsentEnabled(data.consentPopupEnabled) }).catch(() => undefined)
     void fetch('/api/public/payment-config').then((response) => response.ok ? response.json() : null).then((data) => { if (data) setPaymentConfig(data) }).catch(() => undefined)
@@ -561,7 +561,7 @@ function LandingPage() {
       paymentSchema: 'Single', amount: paymentIntent.amount, currency: 'RUB', culture: 'ru-RU', skin: 'modern',
       externalId: paymentIntent.invoiceId,
       userInfo: { accountId: paymentIntent.accountId, email: paymentIntent.email },
-      tokenize: true, receiptEmail: paymentIntent.email,
+      tokenize: true, ...(paymentIntent.email ? { receiptEmail: paymentIntent.email } : {}),
     })
       .catch((error: unknown) => setPaymentMessage(error instanceof Error ? `Не удалось открыть кассу CloudPayments: ${error.message}` : 'Не удалось открыть кассу CloudPayments. Попробуйте ещё раз.'))
   }, [paymentIntent, cloudPaymentsReady, checkoutAttempt])
@@ -572,35 +572,34 @@ function LandingPage() {
       try {
         const response = await fetch(`/api/payment/status/${paymentIntent.invoiceId}`, { cache: 'no-store' })
         const data = response.ok ? await response.json() : null
-        if (data?.status === 'paid' && !stopped) { setPaymentConfirmed(true); setAccountEmail(checkoutEmail); setPaymentMessage('Оплата 1 ₽ подтверждена. Теперь создайте аккаунт, чтобы открыть редактор.') }
+        if (data?.status === 'paid' && !stopped) { setPaymentConfirmed(true); setAccountEmail(paymentIntent.email); setPaymentMessage('Оплата 1 ₽ подтверждена. Теперь создайте аккаунт, чтобы открыть редактор.') }
       } catch { /* Retry while checkout stays open. */ }
     }
     void checkPayment()
     const timer = window.setInterval(() => { void checkPayment() }, 3000)
     return () => { stopped = true; window.clearInterval(timer) }
-  }, [paymentIntent, paymentConfirmed, checkoutEmail])
+  }, [paymentIntent, paymentConfirmed])
   const startAccess = (event: MouseEvent<HTMLAnchorElement>) => {
     if (!consentEnabled) return
     event.preventDefault()
     setAccepted([false, false])
     setConsentOpen(true)
   }
-  const beginPayment = () => {
-    setPaymentMessage('')
-    if (!paymentConfig.enabled) { setPaymentMessage('Оплата пока не настроена на сервере.'); return }
-    if (!/^\S+@\S+\.\S+$/.test(checkoutEmail.trim())) { setPaymentMessage('Введите e-mail для чека и создания аккаунта.'); return }
-    void createPaymentIntent()
-  }
   const createPaymentIntent = async () => {
     setPaymentBusy(true)
     try {
-      const response = await fetch('/api/payment/intent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: paymentPlan, email: checkoutEmail.trim() }) })
+      const response = await fetch('/api/payment/intent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ plan: paymentPlan }) })
       const intent = await response.json()
       if (!response.ok) throw new Error(intent.error || 'Не удалось начать оплату.')
       setPaymentIntent(intent as PaymentIntent)
     } catch (error) { setPaymentMessage(error instanceof Error ? error.message : 'Не удалось начать оплату.') }
     finally { setPaymentBusy(false) }
   }
+  useEffect(() => {
+    if (!paymentConfig.enabled || autoCheckoutRequestedRef.current) return
+    autoCheckoutRequestedRef.current = true
+    void createPaymentIntent()
+  }, [paymentConfig.enabled])
   const submitAccount = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setPaymentBusy(true); setPaymentMessage('')
     try {
@@ -619,7 +618,7 @@ function LandingPage() {
       <div className="landing-preview" aria-label="Превью редактора BallPlay"><div className="preview-top"><span className="preview-dot" /><span className="preview-dot" /><span className="preview-dot" /><span className="preview-title">ballplay / симуляция 01</span><span className="preview-live">● LIVE</span></div><div className="preview-scene"><div className="preview-arena"><span className="preview-object object-one">🐱</span><span className="preview-object object-two">🐸</span><span className="preview-object object-three">🐱</span><span className="preview-spark">✦</span></div><div className="preview-caption">ТВОЯ ИДЕЯ — ТВОЯ СИМУЛЯЦИЯ</div></div><div className="preview-controls"><span>◉ Запись</span><span>Ⅱ Пауза</span><span>⟳ Сброс</span><div className="preview-wave"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div></div></div>
     </section>
     <section className="landing-features" id="features"><div className="landing-section-heading"><span>СОЗДАВАЙ СВОИ ПРАВИЛА</span><h2>Из картинки — в симуляцию</h2></div><div className="landing-feature-grid"><article><b>01</b><h3>Твои персонажи</h3><p>Загружай PNG с прозрачным фоном и собирай собственные коллекции уровней.</p></article><article><b>02</b><h3>Физика и слияния</h3><p>Объекты падают, сталкиваются и объединяются. Настраивай движение под свой стиль.</p></article><article><b>03</b><h3>Видео для соцсетей</h3><p>Записывай вертикальные симуляции 9:16 и делись готовыми роликами.</p></article></div></section>
-    <section className="landing-subscribe" id="subscribe"><div className="payment-copy"><div className="landing-eyebrow"><span /> РАННИЙ ДОСТУП</div><h2>Попробуй BallPlay<br />за <em>1 рубль</em></h2><p>Сейчас — 1 ₽ за первый день. Затем автоматически 699 ₽ за каждые 7 дней, пока подписка не отменена.</p><small>Сначала оплата, затем создание аккаунта.</small></div><div className="payment-card"><div className="payment-first-charge"><strong>1 ₽</strong><span>за первый день</span></div><p className="payment-renewal">Далее — 699 ₽ каждые 7 дней. Подписку можно отменить в любой момент.</p>{!paymentIntent && <><label className="checkout-email-label">E-mail для чека и аккаунта<input type="email" autoComplete="email" required placeholder="you@example.com" value={checkoutEmail} onChange={(event) => setCheckoutEmail(event.target.value)} /></label><button className="payment-submit" type="button" disabled={!paymentConfig.enabled || paymentBusy} onClick={beginPayment}>{paymentBusy ? 'Подождите…' : paymentConfig.enabled ? 'Перейти к оплате 1 ₽' : 'Ожидает настройки сервера'}</button></>}{paymentIntent && !paymentConfirmed && <><div className="cloudpayments-official"><span>Официальная касса CloudPayments открыта отдельно. Завершите оплату в окне кассы.</span></div><button className="checkout-retry" type="button" disabled={!cloudPaymentsReady} onClick={() => setCheckoutAttempt((attempt) => attempt + 1)}>Открыть кассу ещё раз</button><p className="payment-message" role="status">После оплаты дождитесь подтверждения, затем создайте аккаунт.</p></>}{paymentConfirmed && <form className="checkout-account-form" onSubmit={submitAccount}><h3>Оплата подтверждена</h3><p>Создайте аккаунт, чтобы привязать подписку и открыть редактор.</p><label>E-mail<input type="email" autoComplete="email" required value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} /></label><label>Пароль<input type="password" autoComplete={accountMode === 'register' ? 'new-password' : 'current-password'} minLength={8} required value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} /></label>{paymentMessage && <p className="payment-message" role="alert">{paymentMessage}</p>}<button className="payment-submit" type="submit" disabled={paymentBusy}>{paymentBusy ? 'Подождите…' : accountMode === 'register' ? 'Создать аккаунт' : 'Войти и привязать оплату'}</button><button className="account-switch" type="button" onClick={() => setAccountMode(accountMode === 'register' ? 'login' : 'register')}>{accountMode === 'register' ? 'Уже есть аккаунт? Войти' : 'Нет аккаунта? Создать'}</button></form>}{paymentMessage && !paymentConfirmed && <p className="payment-message" role="status">{paymentMessage}</p>}</div></section>
+    <section className="landing-subscribe" id="subscribe"><div className="payment-copy"><div className="landing-eyebrow"><span /> РАННИЙ ДОСТУП</div><h2>Попробуй BallPlay<br />за <em>1 рубль</em></h2><p>Сейчас — 1 ₽ за первый день. Затем автоматически 699 ₽ за каждые 7 дней, пока подписка не отменена.</p><small>Сначала оплата, затем создание аккаунта.</small></div><div className="payment-card"><div className="payment-first-charge"><strong>1 ₽</strong><span>за первый день</span></div><p className="payment-renewal">Далее — 699 ₽ каждые 7 дней. Подписку можно отменить в любой момент.</p>{!paymentIntent && <div className="cloudpayments-official" role="status">{paymentBusy ? 'Открываем официальную кассу CloudPayments…' : paymentMessage || 'Подготавливаем официальную кассу CloudPayments…'}</div>}{paymentIntent && !paymentConfirmed && <><div className="cloudpayments-official"><span>Официальная касса CloudPayments должна открыться автоматически. Если окно не появилось, откройте её повторно:</span></div><button className="checkout-retry" type="button" disabled={!cloudPaymentsReady} onClick={() => setCheckoutAttempt((attempt) => attempt + 1)}>Открыть кассу ещё раз</button><p className="payment-message" role="status">После оплаты дождитесь подтверждения, затем создайте аккаунт.</p></>}{paymentConfirmed && <form className="checkout-account-form" onSubmit={submitAccount}><h3>Оплата подтверждена</h3><p>Создайте аккаунт, чтобы привязать подписку и открыть редактор.</p><label>E-mail<input type="email" autoComplete="email" required value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} /></label><label>Пароль<input type="password" autoComplete={accountMode === 'register' ? 'new-password' : 'current-password'} minLength={8} required value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} /></label>{paymentMessage && <p className="payment-message" role="alert">{paymentMessage}</p>}<button className="payment-submit" type="submit" disabled={paymentBusy}>{paymentBusy ? 'Подождите…' : accountMode === 'register' ? 'Создать аккаунт' : 'Войти и привязать оплату'}</button><button className="account-switch" type="button" onClick={() => setAccountMode(accountMode === 'register' ? 'login' : 'register')}>{accountMode === 'register' ? 'Уже есть аккаунт? Войти' : 'Нет аккаунта? Создать'}</button></form>}{paymentMessage && !paymentConfirmed && paymentIntent && <p className="payment-message" role="status">{paymentMessage}</p>}</div></section>
     {consentOpen && <div className="consent-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConsentOpen(false) }}><section className="consent-dialog" role="dialog" aria-modal="true" aria-labelledby="consent-title"><button className="consent-close" type="button" aria-label="Закрыть" onClick={() => setConsentOpen(false)}>×</button><div className="consent-pointer">👇</div><h2 id="consent-title">Нужно нажать галочки</h2><div className="consent-items"><label className="consent-item"><input type="checkbox" checked={accepted[0]} onChange={(event) => setAccepted([event.target.checked, accepted[1]])} /><span>Вы даете согласие на обработку персональных данных, а также принимаете <a className="consent-inline-link" href="/terms" target="_blank" rel="noreferrer">условия использования</a></span></label><label className="consent-item"><input type="checkbox" checked={accepted[1]} onChange={(event) => setAccepted([accepted[0], event.target.checked])} /><span>Вы подтверждаете согласие с <a className="consent-inline-link" href="/terms" target="_blank" rel="noreferrer">правилами рекуррентных платежей</a>. Сейчас списывается только 1 ₽ за первый день. Далее — 699 ₽ каждые 7 дней согласно <a className="consent-inline-link" href="/tariffs" target="_blank" rel="noreferrer">тарификации</a>. Отменить подписку можно в любой момент.</span></label></div><button className="consent-submit" type="button" disabled={!accepted.every(Boolean)} onClick={() => { setConsentOpen(false); document.getElementById('subscribe')?.scrollIntoView({ behavior: 'smooth' }) }}>Получить Премиум</button></section></div>}
     <footer className="landing-footer"><a className="landing-brand" href="#top"><span className="landing-mark">✳</span> ball<span>play</span></a><span>Твори. Запускай. Залипай.</span><a className="landing-legal-link" href="/terms">Условия использования</a><a className="landing-legal-link" href="/tariffs">Тарификация</a><span>© BallPlay</span></footer>
   </main>
