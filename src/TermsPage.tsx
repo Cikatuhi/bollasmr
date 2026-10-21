@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import BallPlayMark from './components/BallPlayMark'
 
 function Clause({ number, children }: { number: string; children: ReactNode }) {
   return <p><strong>{number}.</strong> {children}</p>
@@ -6,7 +7,7 @@ function Clause({ number, children }: { number: string; children: ReactNode }) {
 
 export default function TermsPage() {
   return <main className="terms-page">
-    <header className="terms-header"><a className="landing-brand" href="/"><span className="landing-mark">✳</span> ball<span>play</span></a><a href="/">На главную</a></header>
+    <header className="terms-header"><a className="landing-brand" href="/"><span className="landing-mark"><BallPlayMark /></span> ball<span>play</span></a><a href="/">На главную</a></header>
     <article className="terms-document">
       <p className="terms-kicker">BALLPLAY · BALLPLAY.RU</p>
       <h1>Условия использования</h1>

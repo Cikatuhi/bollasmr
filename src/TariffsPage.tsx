@@ -1,6 +1,8 @@
+import BallPlayMark from './components/BallPlayMark'
+
 export default function TariffsPage() {
   return <main className="terms-page">
-    <header className="terms-header"><a className="landing-brand" href="/"><span className="landing-mark">✳</span> ball<span>play</span></a><a href="/">На главную</a></header>
+    <header className="terms-header"><a className="landing-brand" href="/"><span className="landing-mark"><BallPlayMark /></span> ball<span>play</span></a><a href="/">На главную</a></header>
     <article className="terms-document">
       <p className="terms-kicker">BALLPLAY · BALLPLAY.RU</p>
       <h1>Тарификация</h1>
