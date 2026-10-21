@@ -323,6 +323,32 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .subscription-summary strong { font-size: 20px; }
   .subscription-summary strong small { font-size: 11px; }
 }
+
+/* Mobile landing polish: keep navigation clear and checkout controls unobstructed. */
+@media (max-width: 800px) {
+  .landing-page { min-height: 100svh; overscroll-behavior-x: none; }
+  .landing-nav { position: sticky; top: 0; z-index: 12; border-bottom-color: #ffffff12; background: #101014ed; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+  .landing-nav-cta { min-height: 44px; border-radius: 12px; font-size: 13px; font-weight: 650; }
+  .landing-hero { padding-top: clamp(28px, 8vw, 44px); }
+  .landing-copy h1 { max-width: 12ch; font-size: clamp(35px, 9vw, 48px); }
+  .landing-preview { box-shadow: 0 18px 46px #0006; }
+  .landing-subscribe { scroll-margin-top: 78px; }
+  .landing-feature-grid article { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: start; column-gap: 12px; row-gap: 4px; padding: 17px 16px; }
+  .landing-feature-grid article > b { grid-column: 1; grid-row: 1 / span 2; min-width: 32px; margin-top: 2px; }
+  .landing-feature-grid h3 { grid-column: 2; grid-row: 1; margin: 0; }
+  .landing-feature-grid p { grid-column: 2; grid-row: 2; max-width: none; margin: 0; }
+  .landing-inline-cta { min-height: 52px; margin-top: 18px; border-radius: 13px; }
+  .landing-legal-link { padding: 0 4px; }
+  .landing-nav-cta:focus-visible, .landing-primary:focus-visible, .mobile-access-cta:focus-visible, .landing-inline-cta:focus-visible, .landing-legal-link:focus-visible { outline: 3px solid #c0b4ff; outline-offset: 3px; }
+  .mobile-access-cta { z-index: 11; min-height: 56px; border-radius: 16px; padding-right: 20px; padding-left: 20px; font-size: 15px; }
+}
+@media (max-width: 420px) {
+  .landing-nav { height: 60px; min-height: 60px; }
+  .landing-nav-cta { padding-inline: 11px; }
+  .landing-copy h1 { font-size: clamp(33px, 8.7vw, 38px); }
+  .landing-subscribe { padding-top: 21px; }
+  .cloudpayments-embed { min-height: 0; }
+}
 @media(prefers-reduced-motion: reduce) {
   .preview-object, .preview-spark { animation: none; }
 }
