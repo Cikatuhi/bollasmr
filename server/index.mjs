@@ -23,11 +23,14 @@ const ensurePaymentColumns = () => {
       await Promise.all([
         pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS plan_code TEXT'),
         pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_kind TEXT NOT NULL DEFAULT 'initial'"),
+        pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS account_id TEXT'),
+        pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS card_token TEXT'),
         pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_code TEXT'),
         pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS card_token TEXT'),
         pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS next_charge_at TIMESTAMPTZ'),
         pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS charge_attempt_at TIMESTAMPTZ'),
       ])
+      await pool.query('ALTER TABLE payments ALTER COLUMN user_id DROP NOT NULL')
       await pool.query('CREATE INDEX IF NOT EXISTS subscriptions_due_idx ON subscriptions (next_charge_at) WHERE card_token IS NOT NULL')
     })().catch((error) => {
       paymentColumnsReady = undefined
@@ -101,22 +104,41 @@ const server = http.createServer(async (req, res) => {
       const result = await pool.query(`INSERT INTO subscriptions(user_id,status,starts_at,ends_at,updated_at) VALUES($1,$2,CASE WHEN $2='active' THEN now() ELSE NULL END,NULL,now()) ON CONFLICT(user_id) DO UPDATE SET status=EXCLUDED.status, starts_at=CASE WHEN EXCLUDED.status='active' THEN COALESCE(subscriptions.starts_at,now()) ELSE subscriptions.starts_at END, updated_at=now() RETURNING status`, [subscriptionMatch[1], status])
       return result.rowCount ? json(res, 200, { status: result.rows[0].status }) : json(res, 404, { error: 'Пользователь не найден.' })
     }
-    if (req.url === '/api/auth/register' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const password = String(input.password || ''); if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return json(res, 400, { error: 'Введите корректный e-mail и пароль не короче 8 символов.' }); const id = crypto.randomUUID(); const hash = await passwordHash(password); try { await pool.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)', [id, email, hash]); await pool.query('INSERT INTO subscriptions(user_id) VALUES($1)', [id]); await setSession(res, id); return json(res, 201, { user: { id, email }, subscriptionStatus: 'inactive' }) } catch (error) { if (error.code === '23505') return json(res, 409, { error: 'Такой e-mail уже зарегистрирован.' }); throw error } }
-    if (req.url === '/api/auth/login' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const result = await pool.query('SELECT id,email,password_hash FROM users WHERE email=$1', [email]); if (!result.rows[0] || !(await passwordMatches(String(input.password || ''), result.rows[0].password_hash))) return json(res, 401, { error: 'Неверный e-mail или пароль.' }); await setSession(res, result.rows[0].id); const subscription = await pool.query('SELECT COALESCE(status, \'inactive\') AS status FROM subscriptions WHERE user_id=$1', [result.rows[0].id]); return json(res, 200, { user: { id: result.rows[0].id, email }, subscriptionStatus: subscription.rows[0]?.status || 'inactive' }) }
+    const claimInitialPayment = async (userId, invoiceId) => {
+      if (!invoiceId) return false
+      await ensurePaymentColumns()
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        const result = await client.query(`SELECT id,user_id,plan_code,payment_kind,status,card_token,paid_at FROM payments WHERE id=$1 AND provider='cloudpayments' FOR UPDATE`, [String(invoiceId)])
+        const payment = result.rows[0]
+        if (!payment || payment.payment_kind !== 'initial' || payment.status !== 'paid' || payment.user_id || !payment.card_token) { await client.query('ROLLBACK'); return false }
+        const plan = paymentPlans[payment.plan_code]
+        if (!plan) { await client.query('ROLLBACK'); return false }
+        await client.query('UPDATE payments SET user_id=$2 WHERE id=$1 AND user_id IS NULL', [payment.id, userId])
+        await client.query(`INSERT INTO subscriptions(user_id,status,provider,provider_subscription_id,plan_code,card_token,starts_at,ends_at,next_charge_at,charge_attempt_at,updated_at) VALUES($1,'active','cloudpayments',NULL,$2,$3,COALESCE($4,now()),COALESCE($4,now())+interval '1 day',COALESCE($4,now())+interval '1 day',NULL,now()) ON CONFLICT(user_id) DO UPDATE SET status='active',provider='cloudpayments',provider_subscription_id=NULL,plan_code=EXCLUDED.plan_code,card_token=EXCLUDED.card_token,starts_at=EXCLUDED.starts_at,ends_at=EXCLUDED.ends_at,next_charge_at=EXCLUDED.next_charge_at,charge_attempt_at=NULL,updated_at=now()`, [userId, payment.plan_code, payment.card_token, payment.paid_at])
+        await client.query('COMMIT')
+        return true
+      } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error } finally { client.release() }
+    }
+    if (req.url === '/api/auth/register' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const password = String(input.password || ''); if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return json(res, 400, { error: 'Введите корректный e-mail и пароль не короче 8 символов.' }); const id = crypto.randomUUID(); const hash = await passwordHash(password); try { await pool.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)', [id, email, hash]); await pool.query('INSERT INTO subscriptions(user_id) VALUES($1)', [id]); const claimed = await claimInitialPayment(id, input.invoiceId); await setSession(res, id); return json(res, 201, { user: { id, email }, subscriptionStatus: claimed ? 'active' : 'inactive' }) } catch (error) { if (error.code === '23505') return json(res, 409, { error: 'Такой e-mail уже зарегистрирован.' }); throw error } }
+    if (req.url === '/api/auth/login' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const result = await pool.query('SELECT id,email,password_hash FROM users WHERE email=$1', [email]); if (!result.rows[0] || !(await passwordMatches(String(input.password || ''), result.rows[0].password_hash))) return json(res, 401, { error: 'Неверный e-mail или пароль.' }); await claimInitialPayment(result.rows[0].id, input.invoiceId); await setSession(res, result.rows[0].id); const subscription = await pool.query('SELECT COALESCE(status, \'inactive\') AS status FROM subscriptions WHERE user_id=$1', [result.rows[0].id]); return json(res, 200, { user: { id: result.rows[0].id, email }, subscriptionStatus: subscription.rows[0]?.status || 'inactive' }) }
     if (req.url === '/api/auth/me' && req.method === 'GET') { const user = await sessionUser(req); return user ? json(res, 200, { user: { id: user.id, email: user.email }, subscriptionStatus: user.subscription_status }) : json(res, 401, { error: 'Не авторизован.' }) }
     if (req.url === '/api/payment/intent' && req.method === 'POST') {
-      const user = await sessionUser(req)
-      if (!user) return json(res, 401, { error: 'Сначала войдите или создайте аккаунт.' })
       if (!process.env.CLOUDPAYMENTS_PUBLIC_ID || !process.env.CLOUDPAYMENTS_API_SECRET) return json(res, 503, { error: 'Платёжная система ещё не настроена.' })
       const input = await body(req); const plan = paymentPlans[String(input.plan || '')]
       if (!plan) return json(res, 400, { error: 'Выберите тариф.' })
       await ensurePaymentColumns()
-      const activeIntent = await pool.query(`SELECT 1 FROM payments WHERE user_id=$1 AND provider='cloudpayments' AND payment_kind='initial' AND status='pending' AND created_at > now()-interval '30 minutes' LIMIT 1`, [user.id])
-      if (activeIntent.rowCount) return json(res, 409, { error: 'У вас уже открыта форма оплаты. Завершите её или попробуйте снова через 30 минут.' })
-      await pool.query(`UPDATE payments SET status='failed' WHERE user_id=$1 AND provider='cloudpayments' AND payment_kind='initial' AND status='pending' AND created_at <= now()-interval '30 minutes'`, [user.id])
       const id = crypto.randomUUID()
-      await pool.query(`INSERT INTO payments(id,user_id,provider,amount_minor,currency,status,plan_code,payment_kind) VALUES($1,$2,'cloudpayments',100,'RUB','pending',$3,'initial')`, [id, user.id, String(input.plan)])
-      return json(res, 201, { invoiceId: id, accountId: user.id, email: user.email, publicId: process.env.CLOUDPAYMENTS_PUBLIC_ID, amount: 1, plan: { period: plan.period, amount: plan.amount } })
+      const email = String(input.email || '').trim().toLowerCase()
+      if (email && !/^\S+@\S+\.\S+$/.test(email)) return json(res, 400, { error: 'Введите корректный e-mail.' })
+      await pool.query(`INSERT INTO payments(id,user_id,account_id,provider,amount_minor,currency,status,plan_code,payment_kind) VALUES($1,NULL,$1,'cloudpayments',100,'RUB','pending',$2,'initial')`, [id, String(input.plan)])
+      return json(res, 201, { invoiceId: id, accountId: id, email, publicId: process.env.CLOUDPAYMENTS_PUBLIC_ID, amount: 1, plan: { period: plan.period, amount: plan.amount } })
+    }
+    const paymentStatusMatch = req.url?.match(/^\/api\/payment\/status\/([0-9a-f-]+)$/i)
+    if (paymentStatusMatch && req.method === 'GET') {
+      const result = await pool.query(`SELECT status FROM payments WHERE id=$1 AND provider='cloudpayments' AND payment_kind='initial'`, [paymentStatusMatch[1]])
+      return result.rows[0] ? json(res, 200, { status: result.rows[0].status }) : json(res, 404, { error: 'Платёж не найден.' })
     }
     if (req.url === '/api/payment/check' && req.method === 'POST') {
       const raw = await rawBody(req)
@@ -131,7 +153,7 @@ const server = http.createServer(async (req, res) => {
         : await pool.query(`SELECT user_id,amount_minor,currency,status,payment_kind FROM payments WHERE user_id=$1 AND provider='cloudpayments' AND payment_kind='initial' AND amount_minor=100 AND status='pending' ORDER BY created_at DESC LIMIT 1`, [accountId])
       const payment = result.rows[0]
       if (!payment) return json(res, 200, { code: 10 })
-      if (payment.user_id !== accountId) return json(res, 200, { code: 11 })
+      if ((payment.user_id || invoiceId) !== accountId) return json(res, 200, { code: 11 })
       if (payment.payment_kind !== 'initial' || payment.amount_minor !== Math.round(Number(input.Amount) * 100) || payment.currency !== String(input.Currency).toUpperCase()) return json(res, 200, { code: 12 })
       if (payment.status !== 'pending') return json(res, 200, { code: 13 })
       return json(res, 200, { code: 0 })
@@ -153,12 +175,12 @@ const server = http.createServer(async (req, res) => {
         const duplicate = await client.query(`SELECT 1 FROM payments WHERE provider_payment_id=$1`, [providerPaymentId])
         if (duplicate.rowCount) { await client.query('COMMIT'); return json(res, 200, { code: 0 }) }
         const result = invoiceId
-          ? await client.query(`SELECT id,user_id,amount_minor,plan_code,payment_kind,status FROM payments WHERE id=$1 AND provider='cloudpayments' FOR UPDATE`, [invoiceId])
+          ? await client.query(`SELECT id,user_id,account_id,amount_minor,plan_code,payment_kind,status FROM payments WHERE id=$1 AND provider='cloudpayments' FOR UPDATE`, [invoiceId])
           : await client.query(`SELECT id,user_id,amount_minor,plan_code,payment_kind,status FROM payments WHERE user_id=$1 AND provider='cloudpayments' AND payment_kind='initial' AND amount_minor=100 AND status='pending' AND created_at > now()-interval '30 minutes' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [accountId])
         const payment = result.rows[0]
         const duplicateAfterLock = await client.query(`SELECT 1 FROM payments WHERE provider_payment_id=$1`, [providerPaymentId])
         if (duplicateAfterLock.rowCount) { await client.query('COMMIT'); return json(res, 200, { code: 0 }) }
-        if (!payment || payment.user_id !== accountId || payment.status !== 'pending' || payment.amount_minor !== Math.round(amount * 100)) {
+        if (!payment || (payment.user_id || payment.account_id || payment.id) !== accountId || payment.status !== 'pending' || payment.amount_minor !== Math.round(amount * 100)) {
           await client.query('ROLLBACK'); return json(res, 400, { code: 13, message: 'Payment does not match invoice' })
         }
         const plan = paymentPlans[payment.plan_code]
@@ -175,13 +197,13 @@ const server = http.createServer(async (req, res) => {
           await client.query('COMMIT')
           return json(res, 200, { code: 0 })
         }
-        await client.query(`UPDATE payments SET status='paid',provider_payment_id=$2,paid_at=now() WHERE id=$1`, [payment.id, providerPaymentId])
+        await client.query(`UPDATE payments SET status='paid',provider_payment_id=$2,paid_at=now(),card_token=$3 WHERE id=$1`, [payment.id, providerPaymentId, String(input.Token || '') || null])
         if (payment.payment_kind === 'initial') {
           const cardToken = String(input.Token || '')
           if (payment.amount_minor !== 100 || !cardToken) {
             await client.query('ROLLBACK'); return json(res, 400, { code: 13, message: 'Initial payment must be 1 RUB and include a tokenized card' })
           }
-          await client.query(`INSERT INTO subscriptions(user_id,status,provider,provider_subscription_id,plan_code,card_token,starts_at,ends_at,next_charge_at,charge_attempt_at,updated_at) VALUES($1,'active','cloudpayments',NULL,$2,$3,now(),now()+interval '1 day',now()+interval '1 day',NULL,now()) ON CONFLICT(user_id) DO UPDATE SET status='active',provider='cloudpayments',provider_subscription_id=NULL,plan_code=EXCLUDED.plan_code,card_token=EXCLUDED.card_token,starts_at=now(),ends_at=now()+interval '1 day',next_charge_at=now()+interval '1 day',charge_attempt_at=NULL,updated_at=now()`, [accountId, payment.plan_code, cardToken])
+          if (payment.user_id) await client.query(`INSERT INTO subscriptions(user_id,status,provider,provider_subscription_id,plan_code,card_token,starts_at,ends_at,next_charge_at,charge_attempt_at,updated_at) VALUES($1,'active','cloudpayments',NULL,$2,$3,now(),now()+interval '1 day',now()+interval '1 day',NULL,now()) ON CONFLICT(user_id) DO UPDATE SET status='active',provider='cloudpayments',provider_subscription_id=NULL,plan_code=EXCLUDED.plan_code,card_token=EXCLUDED.card_token,starts_at=now(),ends_at=now()+interval '1 day',next_charge_at=now()+interval '1 day',charge_attempt_at=NULL,updated_at=now()`, [accountId, payment.plan_code, cardToken])
         } else {
           const subscriptionResult = await client.query(`SELECT plan_code,status FROM subscriptions WHERE user_id=$1 FOR UPDATE`, [accountId])
           const subscription = subscriptionResult.rows[0]
