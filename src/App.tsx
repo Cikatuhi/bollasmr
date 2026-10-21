@@ -519,7 +519,7 @@ function EditorApp() {
 type PaymentPlanCode = 'week' | 'threeDays' | 'day'
 type PaymentIntent = { invoiceId: string; accountId: string; email: string; publicId: string; amount: number; plan: { period: number; amount: number } }
 type CloudPaymentsBlocksOptions = { publicTerminalId: string; description: string; paymentSchema: 'Single'; amount: number; currency: string; language: string; externalId: string; accountId: string; tokenize: true; receiptEmail?: string }
-type CloudPaymentsBlocksCustomization = { appearance: { colors: { primaryButtonColor: string; primaryHoverButtonColor: string; primaryButtonTextColor: string; primaryButtonHoverTextColor: string; activeInputColor: string; inputBackground: string; inputColor: string; inputBorderColor: string; titleColor: string; textColor: string; errorColor: string; skeletonBackground: string }; borders: { radius: string } } }
+type CloudPaymentsBlocksCustomization = { appearance: { colors: { primaryButtonColor: string; primaryHoverButtonColor: string; primaryButtonTextColor: string; primaryButtonHoverTextColor: string; activeInputColor: string; inputBackground: string; inputColor: string; inputBorderColor: string; titleColor: string; textColor: string; errorColor: string; skeletonBackground: string }; borders: { radius: string } }; components: { paymentButton: { fontSize: string }; paymentForm: { labelFontSize: string; activeLabelFontSize: string; fontSize: string } } }
 type CloudPaymentsBlocksApp = { mount: (element: HTMLElement) => void; unmount: () => void; on: (event: 'success' | 'fail', callback: (result: unknown) => void) => void }
 type PaymentConfig = { publicId: string; enabled: boolean }
 
@@ -573,6 +573,10 @@ function LandingPage() {
           errorColor: '#C83E53', skeletonBackground: '#F5F5F5',
         },
         borders: { radius: '24px' },
+      },
+      components: {
+        paymentButton: { fontSize: '15px' },
+        paymentForm: { labelFontSize: '13px', activeLabelFontSize: '12px', fontSize: '14px' },
       },
     })
     blocks.on('success', () => setPaymentMessage('Платёж принят CloudPayments. Подтверждаем оплату…'))
