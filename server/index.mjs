@@ -26,6 +26,7 @@ const ensurePaymentColumns = () => {
         pool.query("ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_kind TEXT NOT NULL DEFAULT 'initial'"),
         pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS account_id TEXT'),
         pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS card_token TEXT'),
+        pool.query('ALTER TABLE payments ADD COLUMN IF NOT EXISTS consent_data JSONB'),
         pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS plan_code TEXT'),
         pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS card_token TEXT'),
         pool.query('ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS next_charge_at TIMESTAMPTZ'),
@@ -129,11 +130,26 @@ const server = http.createServer(async (req, res) => {
       if (!process.env.CLOUDPAYMENTS_PUBLIC_ID || !process.env.CLOUDPAYMENTS_API_SECRET) return json(res, 503, { error: 'Платёжная система ещё не настроена.' })
       const input = await body(req); const plan = paymentPlans[String(input.plan || '')]
       if (!plan) return json(res, 400, { error: 'Выберите тариф.' })
+      if (input.consents?.terms !== true || input.consents?.personalData !== true || input.consents?.recurring !== true) return json(res, 400, { error: 'Для перехода к оплате подтвердите условия использования, обработку персональных данных и условия подписки.' })
       await ensurePaymentColumns()
       const id = crypto.randomUUID()
       const email = String(input.email || '').trim().toLowerCase()
       if (email && !/^\S+@\S+\.\S+$/.test(email)) return json(res, 400, { error: 'Введите корректный e-mail.' })
-      await pool.query(`INSERT INTO payments(id,user_id,account_id,provider,amount_minor,currency,status,plan_code,payment_kind) VALUES($1::uuid,NULL,$1::text,'cloudpayments',100,'RUB','pending',$2,'initial')`, [id, String(input.plan)])
+      const consentData = {
+        terms: true,
+        personalData: true,
+        recurring: true,
+        acceptedAt: new Date().toISOString(),
+        termsVersion: '2026-10-21',
+        privacyVersion: '2026-10-21',
+        recurringOfferVersion: '2026-10-21',
+        introductoryAmount: 1,
+        introductoryPeriodDays: 1,
+        recurringAmount: plan.amount,
+        recurringPeriodDays: plan.period,
+        planCode: String(input.plan),
+      }
+      await pool.query(`INSERT INTO payments(id,user_id,account_id,provider,amount_minor,currency,status,plan_code,payment_kind,consent_data) VALUES($1::uuid,NULL,$1::text,'cloudpayments',100,'RUB','pending',$2,'initial',$3::jsonb)`, [id, String(input.plan), JSON.stringify(consentData)])
       return json(res, 201, { invoiceId: id, accountId: id, email, publicId: process.env.CLOUDPAYMENTS_PUBLIC_ID, amount: 1, plan: { period: plan.period, amount: plan.amount } })
     }
     const paymentStatusMatch = req.url?.match(/^\/api\/payment\/status\/([0-9a-f-]+)$/i)
