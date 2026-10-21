@@ -270,3 +270,59 @@ button:disabled { opacity: .48; cursor: not-allowed; }
   .landing-subscribe { width: calc(100% - 24px); padding-right: 12px; padding-left: 12px; }
   .cloudpayments-embed { min-height: 590px; }
 }
+
+/* Landing page conversion content: show the product outcome and recurring price before checkout. */
+.landing-copy h1 { max-width: 610px; }
+.landing-note { max-width: 440px; line-height: 1.6; }
+.landing-preview { transform: perspective(1000px) rotateY(-3deg) rotateX(1deg); }
+.preview-object { animation: preview-bounce 1.8s ease-in-out infinite alternate; }
+.object-two { animation-delay: -.75s; }
+.object-three { animation-delay: -1.25s; }
+.preview-spark { animation: preview-sparkle 1.8s ease-in-out infinite; }
+@keyframes preview-bounce { from { translate: 0 -7px; } to { translate: 0 11px; } }
+@keyframes preview-sparkle { 50% { opacity: .55; transform: scale(.8) rotate(25deg); } }
+.landing-features { position: relative; }
+.landing-feature-grid article { position: relative; overflow: hidden; border-radius: 14px; }
+.landing-feature-grid article:after { content: ''; position: absolute; top: 0; right: 0; width: 110px; height: 110px; border-radius: 50%; background: radial-gradient(circle, #a195ff12, transparent 70%); pointer-events: none; }
+.landing-feature-grid article > b { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 27px; padding: 0 8px; border: 1px solid #6f64a333; border-radius: 8px; background: #a195ff0d; }
+.landing-feature-grid h3 { font-size: 17px; }
+.landing-feature-grid p { font-size: 13px; }
+.landing-inline-cta { min-height: 48px; margin-top: 22px; display: inline-flex; align-items: center; justify-content: center; gap: 20px; padding: 0 18px; border: 1px solid #514a79; border-radius: 10px; color: #e9e5ff; background: #252139; text-decoration: none; font-size: 13px; font-weight: 650; }
+.landing-inline-cta span { color: #b5a9ff; font-size: 18px; }
+.landing-inline-cta:hover, .landing-nav-cta:hover { border-color: #8f82da; background: #302a49; }
+.landing-subscribe { max-width: 960px; grid-template-columns: minmax(240px, .85fr) minmax(300px, 1.15fr); align-items: center; justify-items: stretch; gap: clamp(24px, 4vw, 50px); }
+.landing-subscribe > div:first-child { text-align: left; }
+.landing-subscribe .payment-copy .landing-eyebrow { justify-content: flex-start; }
+.landing-subscribe h2 { text-align: left; font-size: clamp(29px, 3vw, 38px); }
+.payment-intro { margin: 11px 0 18px !important; color: #68646a !important; font-size: 14px !important; line-height: 1.55 !important; }
+.subscription-summary { display: grid; grid-template-columns: 1fr 1.25fr; overflow: hidden; border: 1px solid #dedade; border-radius: 14px; background: #fff; }
+.subscription-summary > div { min-width: 0; padding: 13px 15px; }
+.subscription-summary > div + div { border-left: 1px solid #e8e4e7; }
+.subscription-summary span, .subscription-summary strong { display: block; }
+.subscription-summary span { color: #77727a; font-size: 11px; }
+.subscription-summary strong { margin-top: 4px; color: #292929; font-size: 22px; letter-spacing: -.7px; white-space: nowrap; }
+.subscription-summary strong small { color: #77727a; font-size: 12px; font-weight: 500; letter-spacing: 0; }
+.subscription-cancel-note { margin: 11px 0 0 !important; color: #77727a !important; font-size: 11px !important; line-height: 1.5 !important; }
+.payment-card { width: 100%; }
+@media(max-width:800px) {
+  .landing-preview { transform: none; }
+  .landing-copy h1 { max-width: 560px; }
+  .landing-feature-grid article { border-radius: 13px; }
+  .landing-inline-cta { width: 100%; justify-content: space-between; }
+  .landing-subscribe { grid-template-columns: 1fr; align-items: stretch; gap: 8px; }
+  .landing-subscribe > div:first-child { text-align: center; }
+  .landing-subscribe .payment-copy .landing-eyebrow { justify-content: center; }
+  .landing-subscribe h2 { text-align: center; }
+  .payment-intro { max-width: 410px; margin-right: auto !important; margin-left: auto !important; }
+  .subscription-summary { max-width: 430px; margin: 0 auto; text-align: left; }
+  .subscription-cancel-note { max-width: 430px; margin-right: auto !important; margin-left: auto !important; }
+}
+@media(max-width:420px) {
+  .subscription-summary > div { padding: 12px 10px; }
+  .subscription-summary span { font-size: 10px; }
+  .subscription-summary strong { font-size: 20px; }
+  .subscription-summary strong small { font-size: 11px; }
+}
+@media(prefers-reduced-motion: reduce) {
+  .preview-object, .preview-spark { animation: none; }
+}
