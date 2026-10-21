@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import { createTokenCharge, verifyCloudPaymentsSignature } from './cloudpayments.mjs'
+import { adminCredentialsMatch } from './admin-auth.mjs'
 
 const { Pool } = pg
 const root = path.dirname(fileURLToPath(import.meta.url))
@@ -69,12 +70,12 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/api/public/settings' && req.method === 'GET') return json(res, 200, { consentPopupEnabled: await getConsentPopupSetting() })
     if (req.url === '/api/public/payment-config' && req.method === 'GET') return json(res, 200, { publicId: process.env.CLOUDPAYMENTS_PUBLIC_ID || '', enabled: Boolean(process.env.CLOUDPAYMENTS_PUBLIC_ID && process.env.CLOUDPAYMENTS_API_SECRET) })
     if (req.url === '/api/admin/login' && req.method === 'POST') {
-      if (!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) return json(res, 503, { error: 'Администратор не настроен на сервере.' })
+      if ((!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) && !process.env.ADMIN_USERS) return json(res, 503, { error: 'Администратор не настроен на сервере.' })
       const ip = req.socket.remoteAddress || 'unknown'; const now = Date.now(); const recent = (adminLoginAttempts.get(ip) || []).filter((time) => now - time < 15 * 60 * 1000)
       if (recent.length >= 8) return json(res, 429, { error: 'Слишком много попыток. Попробуйте позже.' })
       recent.push(now); adminLoginAttempts.set(ip, recent)
       const input = await body(req)
-      if (!safeEqual(input.username || '', process.env.ADMIN_USERNAME) || !safeEqual(input.password || '', process.env.ADMIN_PASSWORD)) return json(res, 401, { error: 'Неверный логин или пароль.' })
+      if (!(await adminCredentialsMatch(input.username || '', input.password || '', process.env))) return json(res, 401, { error: 'Неверный логин или пароль.' })
       adminLoginAttempts.delete(ip); setAdminSession(res); return json(res, 200, { ok: true })
     }
     if (req.url === '/api/admin/logout' && req.method === 'POST') { const match = req.headers.cookie?.match(new RegExp(`${adminCookieName}=([^;]+)`)); if (match) adminSessions.delete(tokenHash(match[1])); res.setHeader('set-cookie', `${adminCookieName}=; Path=/api/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0`); return json(res, 200, { ok: true }) }
