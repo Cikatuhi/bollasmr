@@ -214,3 +214,59 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .payment-card { width: min(480px, 100%); padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .cloudpayments-embed { min-height: 520px; margin: 0 auto; overflow: visible; border: 0; }
 @media(max-width:800px) { .landing-subscribe { max-width: 540px; margin: 30px 16px 42px; padding: 24px 16px 20px; gap: 14px; border-radius: 22px; }.landing-subscribe h2 { font-size: 28px; }.cloudpayments-embed { min-height: 570px; } }
+
+/* Mobile landing: keep the real checkout close to the first screen and controls thumb-friendly. */
+.mobile-access-cta { display: none; }
+@media(max-width:800px) {
+  .landing-page { display: flex; flex-direction: column; overflow: clip; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .landing-nav { order: 0; width: 100%; height: 64px; min-height: 64px; padding: 0 18px; gap: 12px; }
+  .landing-nav-cta { min-height: 42px; display: inline-flex; align-items: center; padding: 0 13px; font-size: 12px; }
+  .landing-hero { order: 1; width: 100%; min-height: 0; padding: 38px 20px 32px; gap: 25px; }
+  .landing-copy { padding: 0; }
+  .landing-eyebrow { font-size: 8px; letter-spacing: 1px; }
+  .landing-copy h1 { margin: 18px 0 13px; font-size: clamp(34px, 8.5vw, 48px); line-height: 1.08; letter-spacing: -1.9px; text-wrap: balance; }
+  .landing-copy > p { margin: 0; font-size: 14px; line-height: 1.65; }
+  .landing-copy .landing-primary { width: 100%; min-height: 52px; margin-top: 19px; justify-content: space-between; padding: 0 18px; }
+  .landing-note { margin-top: 10px; font-size: 11px; line-height: 1.5; }
+  .landing-preview { width: 100%; min-height: 0; padding: 8px; border-radius: 13px; }
+  .preview-top { height: 32px; }
+  .preview-scene { height: clamp(220px, 68vw, 300px); }
+  .preview-arena { height: 82%; max-height: 250px; width: min(60%, 190px); }
+  .preview-controls { height: 31px; gap: 10px; font-size: 7px; }
+  .landing-subscribe { order: 2; width: calc(100% - 32px); max-width: 540px; margin: 8px auto 34px; padding: 23px 16px 18px; gap: 10px; border-radius: 20px; }
+  .landing-subscribe h2 { margin-top: 7px; font-size: clamp(25px, 7vw, 30px); }
+  .payment-copy .landing-eyebrow { justify-content: center; }
+  .payment-card { width: 100%; }
+  .cloudpayments-embed { width: 100%; min-height: 560px; }
+  .checkout-account-form label input { min-height: 48px; font-size: 16px; }
+  .payment-submit { min-height: 48px; font-size: 14px; }
+  .account-switch { min-height: 44px; padding: 8px 12px; }
+  .landing-features { order: 3; width: 100%; padding: 42px 20px 48px; }
+  .landing-section-heading h2 { margin: 10px 0 22px; font-size: clamp(25px, 7vw, 32px); line-height: 1.15; letter-spacing: -1px; }
+  .landing-feature-grid { gap: 10px; }
+  .landing-feature-grid article { min-height: 0; padding: 18px; border-radius: 12px; }
+  .landing-feature-grid h3 { margin: 12px 0 7px; font-size: 16px; }
+  .landing-feature-grid p { font-size: 13px; line-height: 1.6; }
+  .landing-footer { order: 5; width: 100%; min-height: 0; padding: 20px; gap: 8px 18px; font-size: 11px; }
+  .landing-footer .landing-brand { width: auto; flex-basis: 100%; }
+  .landing-footer > span:last-child { margin-left: 0; }
+  .landing-legal-link { min-height: 40px; display: inline-flex; align-items: center; }
+  .mobile-access-cta { position: fixed; z-index: 15; right: 14px; bottom: calc(12px + env(safe-area-inset-bottom)); left: 14px; min-height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 19px; border: 1px solid #d888a1; border-radius: 15px; color: #261d26; background: linear-gradient(100deg, #f6b3c6, #e982a2); box-shadow: 0 8px 28px #0007, 0 2px 12px #f39bb544; text-decoration: none; font-size: 14px; font-weight: 750; }
+  .mobile-access-cta span { font-size: 21px; }
+  .consent-backdrop { padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  .consent-dialog { width: 100%; max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+}
+@media(max-width:420px) {
+  .landing-nav { padding: 0 14px; }
+  .landing-nav-cta { padding: 0 10px; font-size: 11px; }
+  .landing-hero { padding-right: 16px; padding-left: 16px; }
+  .landing-copy h1 { font-size: clamp(32px, 8.4vw, 38px); letter-spacing: -1.6px; }
+  .landing-copy > p { font-size: 13px; }
+  .landing-preview { padding: 6px; }
+  .preview-title { margin-left: 5px; font-size: 7px; }
+  .preview-live { font-size: 7px; }
+  .preview-controls { gap: 7px; }
+  .preview-wave { gap: 2px; }
+  .landing-subscribe { width: calc(100% - 24px); padding-right: 12px; padding-left: 12px; }
+  .cloudpayments-embed { min-height: 590px; }
+}
