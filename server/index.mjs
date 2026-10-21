@@ -132,7 +132,7 @@ const server = http.createServer(async (req, res) => {
       const id = crypto.randomUUID()
       const email = String(input.email || '').trim().toLowerCase()
       if (email && !/^\S+@\S+\.\S+$/.test(email)) return json(res, 400, { error: 'Введите корректный e-mail.' })
-      await pool.query(`INSERT INTO payments(id,user_id,account_id,provider,amount_minor,currency,status,plan_code,payment_kind) VALUES($1,NULL,$1,'cloudpayments',100,'RUB','pending',$2,'initial')`, [id, String(input.plan)])
+      await pool.query(`INSERT INTO payments(id,user_id,account_id,provider,amount_minor,currency,status,plan_code,payment_kind) VALUES($1::uuid,NULL,$1::text,'cloudpayments',100,'RUB','pending',$2,'initial')`, [id, String(input.plan)])
       return json(res, 201, { invoiceId: id, accountId: id, email, publicId: process.env.CLOUDPAYMENTS_PUBLIC_ID, amount: 1, plan: { period: plan.period, amount: plan.amount } })
     }
     const paymentStatusMatch = req.url?.match(/^\/api\/payment\/status\/([0-9a-f-]+)$/i)
