@@ -18,6 +18,7 @@ const adminSessions = new Map()
 const adminLoginAttempts = new Map()
 let settingsTableReady
 let paymentColumnsReady
+let homepageViewsTableReady
 const ensurePaymentColumns = () => {
   if (!paymentColumnsReady) {
     paymentColumnsReady = (async () => {
@@ -42,6 +43,15 @@ const ensurePaymentColumns = () => {
   return paymentColumnsReady
 }
 const ensureSettingsTable = () => settingsTableReady ||= pool.query(`CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+const ensureHomepageViewsTable = () => {
+  if (!homepageViewsTableReady) {
+    homepageViewsTableReady = pool.query(`CREATE TABLE IF NOT EXISTS homepage_daily_views (view_date DATE PRIMARY KEY, views BIGINT NOT NULL DEFAULT 0)`).catch((error) => {
+      homepageViewsTableReady = undefined
+      throw error
+    })
+  }
+  return homepageViewsTableReady
+}
 const getConsentPopupSetting = async () => {
   await ensureSettingsTable()
   const result = await pool.query(`SELECT value FROM app_settings WHERE key='consent_popup_enabled'`)
@@ -68,6 +78,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': process.env.PUBLIC_ORIGIN || '*', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'content-type' }); return res.end() }
     if (req.url === '/api/health') return json(res, 200, { ok: true })
+    if (req.url === '/api/analytics/homepage' && req.method === 'POST') {
+      await ensureHomepageViewsTable()
+      await pool.query(`INSERT INTO homepage_daily_views(view_date,views) VALUES(CURRENT_DATE,1) ON CONFLICT(view_date) DO UPDATE SET views=homepage_daily_views.views+1`)
+      return json(res, 202, { ok: true })
+    }
     if (req.url === '/api/public/settings' && req.method === 'GET') return json(res, 200, { consentPopupEnabled: await getConsentPopupSetting() })
     if (req.url === '/api/public/payment-config' && req.method === 'GET') return json(res, 200, { publicId: process.env.CLOUDPAYMENTS_PUBLIC_ID || '', enabled: Boolean(process.env.CLOUDPAYMENTS_PUBLIC_ID && process.env.CLOUDPAYMENTS_API_SECRET) })
     if (req.url === '/api/admin/login' && req.method === 'POST') {
@@ -81,6 +96,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url === '/api/admin/logout' && req.method === 'POST') { const match = req.headers.cookie?.match(new RegExp(`${adminCookieName}=([^;]+)`)); if (match) adminSessions.delete(tokenHash(match[1])); res.setHeader('set-cookie', `${adminCookieName}=; Path=/api/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0`); return json(res, 200, { ok: true }) }
     if (req.url === '/api/admin/me' && req.method === 'GET') return adminSession(req) ? json(res, 200, { ok: true }) : json(res, 401, { error: 'Не авторизован.' })
+    if (req.url === '/api/admin/analytics/homepage' && req.method === 'GET') {
+      if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
+      await ensureHomepageViewsTable()
+      const [total, days] = await Promise.all([
+        pool.query('SELECT COALESCE(SUM(views),0)::bigint AS total FROM homepage_daily_views'),
+        pool.query(`SELECT dates.view_date::date AS date, COALESCE(views.views,0)::bigint AS views FROM generate_series(CURRENT_DATE-29,CURRENT_DATE,interval '1 day') AS dates(view_date) LEFT JOIN homepage_daily_views AS views ON views.view_date=dates.view_date ORDER BY dates.view_date`),
+      ])
+      return json(res, 200, { total: Number(total.rows[0].total), days: days.rows.map((row) => ({ date: row.date, views: Number(row.views) })) })
+    }
     if (req.url === '/api/admin/settings' && req.method === 'GET') {
       if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
       return json(res, 200, { consentPopupEnabled: await getConsentPopupSetting() })

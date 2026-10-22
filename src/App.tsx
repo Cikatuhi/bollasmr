@@ -538,6 +538,15 @@ function LandingPage() {
   const [cloudPaymentsReady, setCloudPaymentsReady] = useState(false)
   const paymentBlocksElementRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    if (window.location.pathname !== '/') return
+    const key = 'ballplay-homepage-view-recorded'
+    try {
+      if (window.sessionStorage.getItem(key)) return
+      window.sessionStorage.setItem(key, '1')
+    } catch { /* Count this page load if browser storage is unavailable. */ }
+    void fetch('/api/analytics/homepage', { method: 'POST', keepalive: true }).catch(() => undefined)
+  }, [])
+  useEffect(() => {
     const checkoutSection = checkoutSectionRef.current
     if (!checkoutSection || !('IntersectionObserver' in window)) return
     const observer = new IntersectionObserver(([entry]) => setCheckoutVisible(entry.isIntersecting), { rootMargin: '-12% 0px -12% 0px' })
@@ -644,6 +653,7 @@ function LandingPage() {
 }
 
 type AdminUser = { id: string; email: string; created_at: string; subscription_status: string; last_payment_status: string | null }
+type HomepageAnalytics = { total: number; days: { date: string; views: number }[] }
 
 function EditorGate() {
   const [state, setState] = useState<'checking' | 'allowed' | 'denied'>('checking')
@@ -664,6 +674,8 @@ function AdminPanel() {
   const [query, setQuery] = useState('')
   const [consentPopupEnabled, setConsentPopupEnabled] = useState(true)
   const [settingsLoading, setSettingsLoading] = useState(false)
+  const [homepageAnalytics, setHomepageAnalytics] = useState<HomepageAnalytics | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const api = async (url: string, init?: RequestInit) => {
     const response = await fetch(url, { ...init, credentials: 'include', headers: { 'content-type': 'application/json', ...init?.headers } })
     const result = await response.json().catch(() => ({}))
@@ -676,12 +688,18 @@ function AdminPanel() {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Ошибка загрузки пользователей.') }
     finally { setLoading(false) }
   }, [])
+  const loadHomepageAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true)
+    try { setHomepageAnalytics(await api('/api/admin/analytics/homepage')) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось загрузить статистику.') }
+    finally { setAnalyticsLoading(false) }
+  }, [])
   useEffect(() => {
-    void api('/api/admin/me').then(async () => { setAuthenticated(true); const [_, settings] = await Promise.all([loadUsers(), api('/api/admin/settings')]); setConsentPopupEnabled(settings.consentPopupEnabled) }).catch(() => undefined).finally(() => setChecking(false))
-  }, [loadUsers])
+    void api('/api/admin/me').then(async () => { setAuthenticated(true); const [_, settings] = await Promise.all([loadUsers(), api('/api/admin/settings'), loadHomepageAnalytics()]); setConsentPopupEnabled(settings.consentPopupEnabled) }).catch(() => undefined).finally(() => setChecking(false))
+  }, [loadUsers, loadHomepageAnalytics])
   const login = async (event: FormEvent) => {
     event.preventDefault(); setError('')
-    try { await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setAuthenticated(true); setPassword(''); const [_, settings] = await Promise.all([loadUsers(), api('/api/admin/settings')]); setConsentPopupEnabled(settings.consentPopupEnabled) }
+    try { await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setAuthenticated(true); setPassword(''); const [_, settings] = await Promise.all([loadUsers(), api('/api/admin/settings'), loadHomepageAnalytics()]); setConsentPopupEnabled(settings.consentPopupEnabled) }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось войти.') }
   }
   const changeSubscription = async (user: AdminUser, status: string) => {
@@ -698,7 +716,7 @@ function AdminPanel() {
   if (checking) return <main className="admin-page"><div className="admin-card">Проверка сессии…</div></main>
   if (!authenticated) return <main className="admin-page"><form className="admin-card admin-login" onSubmit={login}><a className="landing-brand" href="/"><span className="landing-mark"><BallPlayMark /></span> ball<span>play</span></a><p className="admin-kicker">ПАНЕЛЬ УПРАВЛЕНИЯ</p><h1>Вход администратора</h1><label>Логин<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label><label>Пароль<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>{error && <p className="admin-error">{error}</p>}<button className="admin-primary">Войти</button></form></main>
   const filtered = users.filter((user) => user.email.toLowerCase().includes(query.toLowerCase()))
-  return <main className="admin-page"><header className="admin-header"><a className="landing-brand" href="/"><span className="landing-mark"><BallPlayMark /></span> ball<span>play</span></a><div><span>Администрирование</span><button onClick={() => void loadUsers()} disabled={loading}>Обновить</button><button onClick={() => void logout()}>Выйти</button></div></header><section className="admin-content"><div className="admin-heading"><div><p className="admin-kicker">ПОЛЬЗОВАТЕЛИ И ДОСТУП</p><h1>Панель управления</h1><p>Всего аккаунтов: <b>{users.length}</b></p></div><input className="admin-search" placeholder="Найти по e-mail" value={query} onChange={(event) => setQuery(event.target.value)} /></div>{error && <p className="admin-error">{error}</p>}<section className="admin-settings-card"><div><p className="admin-kicker">ГЛАВНАЯ СТРАНИЦА</p><h2>Окно согласий перед предложением</h2><p>Показывать посетителям всплывающее окно с двумя обязательными чекбоксами при нажатии «Получить доступ».</p></div><label className="admin-switch"><input type="checkbox" checked={consentPopupEnabled} disabled={settingsLoading} onChange={(event) => void saveConsentPopupSetting(event.target.checked)} /><span>{settingsLoading ? 'Сохраняем…' : consentPopupEnabled ? 'Включено' : 'Выключено'}</span></label></section><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Пользователь</th><th>Создан</th><th>Последняя оплата</th><th>Подписка</th><th>Управление</th></tr></thead><tbody>{filtered.map((user) => <tr key={user.id}><td>{user.email}</td><td>{new Date(user.created_at).toLocaleDateString('ru-RU')}</td><td>{user.last_payment_status || 'Нет платежей'}</td><td><span className={`admin-status ${user.subscription_status}`}>{user.subscription_status}</span></td><td><select aria-label={`Подписка ${user.email}`} value={user.subscription_status} onChange={(event) => void changeSubscription(user, event.target.value)}><option value="inactive">Неактивна</option><option value="active">Активна</option><option value="expired">Истекла</option><option value="cancelled">Отменена</option></select></td></tr>)}{filtered.length === 0 && <tr><td colSpan={5} className="admin-empty">{loading ? 'Загружаю…' : 'Пользователи не найдены'}</td></tr>}</tbody></table></div></section></main>
+  return <main className="admin-page"><header className="admin-header"><a className="landing-brand" href="/"><span className="landing-mark"><BallPlayMark /></span> ball<span>play</span></a><div><span>Администрирование</span><button onClick={() => { void loadUsers(); void loadHomepageAnalytics() }} disabled={loading || analyticsLoading}>Обновить</button><button onClick={() => void logout()}>Выйти</button></div></header><section className="admin-content"><div className="admin-heading"><div><p className="admin-kicker">ПОЛЬЗОВАТЕЛИ И ДОСТУП</p><h1>Панель управления</h1><p>Всего аккаунтов: <b>{users.length}</b></p></div><input className="admin-search" placeholder="Найти по e-mail" value={query} onChange={(event) => setQuery(event.target.value)} /></div>{error && <p className="admin-error">{error}</p>}<section className="admin-analytics-card"><div className="admin-analytics-summary"><p className="admin-kicker">ПОСЕЩЕНИЯ ГЛАВНОЙ</p><h2>{homepageAnalytics ? new Intl.NumberFormat('ru-RU').format(homepageAnalytics.total) : analyticsLoading ? '…' : '—'}</h2><p>Всего просмотров страницы</p></div><div className="admin-analytics-days"><h3>Последние 30 дней</h3>{homepageAnalytics?.days.map((day) => <div className="admin-analytics-day" key={day.date}><time>{new Date(`${day.date}T00:00:00`).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })}</time><div className="admin-analytics-bar"><span style={{ width: `${Math.max(0, ...homepageAnalytics.days.map((entry) => entry.views)) ? day.views / Math.max(...homepageAnalytics.days.map((entry) => entry.views)) * 100 : 0}%` }} /></div><b>{new Intl.NumberFormat('ru-RU').format(day.views)}</b></div>)}</div><p className="admin-analytics-note">Считаются просмотры главной по одному разу за вкладку. Имена и IP-адреса не сохраняются.</p></section><section className="admin-settings-card"><div><p className="admin-kicker">ГЛАВНАЯ СТРАНИЦА</p><h2>Окно согласий перед предложением</h2><p>Показывать посетителям всплывающее окно с двумя обязательными чекбоксами при нажатии «Получить доступ».</p></div><label className="admin-switch"><input type="checkbox" checked={consentPopupEnabled} disabled={settingsLoading} onChange={(event) => void saveConsentPopupSetting(event.target.checked)} /><span>{settingsLoading ? 'Сохраняем…' : consentPopupEnabled ? 'Включено' : 'Выключено'}</span></label></section><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Пользователь</th><th>Создан</th><th>Последняя оплата</th><th>Подписка</th><th>Управление</th></tr></thead><tbody>{filtered.map((user) => <tr key={user.id}><td>{user.email}</td><td>{new Date(user.created_at).toLocaleDateString('ru-RU')}</td><td>{user.last_payment_status || 'Нет платежей'}</td><td><span className={`admin-status ${user.subscription_status}`}>{user.subscription_status}</span></td><td><select aria-label={`Подписка ${user.email}`} value={user.subscription_status} onChange={(event) => void changeSubscription(user, event.target.value)}><option value="inactive">Неактивна</option><option value="active">Активна</option><option value="expired">Истекла</option><option value="cancelled">Отменена</option></select></td></tr>)}{filtered.length === 0 && <tr><td colSpan={5} className="admin-empty">{loading ? 'Загружаю…' : 'Пользователи не найдены'}</td></tr>}</tbody></table></div></section></main>
 }
 
 export default function App() {
