@@ -209,6 +209,9 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .checkout-consent { display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 11px; align-items: start; color: #38353d; font-size: 14px; line-height: 1.55; cursor: pointer; }
 .checkout-consent input { width: 19px; height: 19px; margin: 2px 0 0; accent-color: #e982a2; cursor: pointer; }
 .checkout-consent a { color: #a94768; text-decoration: underline; text-underline-offset: 2px; }
+.checkout-consent-summary { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid #e9dbe0; border-radius: 14px; background: #fff9fb; color: #38353d; font-size: 14px; line-height: 1.55; }
+.checkout-consent-summary p { margin: 0; }
+.checkout-consent-summary a { color: #a94768; text-decoration: underline; text-underline-offset: 2px; }
 .payment-consent-submit { width: 100%; min-height: 52px; border: 0; border-radius: 12px; color: #fff; background: #e982a2; font-size: 15px; font-weight: 700; cursor: pointer; }
 .payment-consent-submit:disabled { cursor: not-allowed; opacity: .48; }
 .cloudpayments-embed { min-height: 300px; margin-top: 18px; overflow: hidden; border-top: 1px solid #ffffff12; }
