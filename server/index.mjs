@@ -101,7 +101,7 @@ const server = http.createServer(async (req, res) => {
       await ensureHomepageViewsTable()
       const [total, days] = await Promise.all([
         pool.query('SELECT COALESCE(SUM(views),0)::bigint AS total FROM homepage_daily_views'),
-        pool.query(`SELECT dates.view_date::date AS date, COALESCE(views.views,0)::bigint AS views FROM generate_series(CURRENT_DATE-29,CURRENT_DATE,interval '1 day') AS dates(view_date) LEFT JOIN homepage_daily_views AS views ON views.view_date=dates.view_date ORDER BY dates.view_date`),
+        pool.query(`SELECT to_char(dates.view_date::date,'YYYY-MM-DD') AS date, COALESCE(views.views,0)::bigint AS views FROM generate_series(CURRENT_DATE-29,CURRENT_DATE,interval '1 day') AS dates(view_date) LEFT JOIN homepage_daily_views AS views ON views.view_date=dates.view_date ORDER BY dates.view_date`),
       ])
       return json(res, 200, { total: Number(total.rows[0].total), days: days.rows.map((row) => ({ date: row.date, views: Number(row.views) })) })
     }
