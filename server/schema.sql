@@ -48,3 +48,56 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS referral_partners (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  referral_code TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS referral_visitors (
+  visitor_hash TEXT PRIMARY KEY,
+  partner_id UUID NOT NULL REFERENCES referral_partners(id),
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS referral_visit_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  visitor_hash TEXT NOT NULL,
+  partner_id UUID NOT NULL REFERENCES referral_partners(id),
+  clicked_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS referral_attributions (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  partner_id UUID NOT NULL REFERENCES referral_partners(id),
+  attached_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS referral_payouts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  partner_id UUID NOT NULL REFERENCES referral_partners(id),
+  amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+  paid_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS referral_commissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  partner_id UUID NOT NULL REFERENCES referral_partners(id),
+  user_id UUID NOT NULL REFERENCES users(id),
+  payment_id UUID NOT NULL UNIQUE REFERENCES payments(id),
+  gross_minor INTEGER NOT NULL CHECK (gross_minor >= 0),
+  commission_minor INTEGER NOT NULL CHECK (commission_minor >= 0),
+  payout_id UUID REFERENCES referral_payouts(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS referral_visitors_expiry_idx ON referral_visitors (expires_at);
+CREATE INDEX IF NOT EXISTS referral_visit_events_partner_idx ON referral_visit_events (partner_id, clicked_at);
+CREATE INDEX IF NOT EXISTS referral_commissions_partner_idx ON referral_commissions (partner_id, created_at);

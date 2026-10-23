@@ -19,6 +19,7 @@ const adminLoginAttempts = new Map()
 let settingsTableReady
 let paymentColumnsReady
 let homepageViewsTableReady
+let referralTablesReady
 const ensurePaymentColumns = () => {
   if (!paymentColumnsReady) {
     paymentColumnsReady = (async () => {
@@ -52,6 +53,44 @@ const ensureHomepageViewsTable = () => {
   }
   return homepageViewsTableReady
 }
+const ensureReferralTables = () => {
+  if (!referralTablesReady) {
+    referralTablesReady = (async () => {
+      await pool.query(`CREATE TABLE IF NOT EXISTS referral_partners (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(), username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL, referral_code TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`)
+      await pool.query(`CREATE TABLE IF NOT EXISTS referral_visitors (
+        visitor_hash TEXT PRIMARY KEY, partner_id UUID NOT NULL REFERENCES referral_partners(id),
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(), expires_at TIMESTAMPTZ NOT NULL
+      )`)
+      await pool.query(`CREATE TABLE IF NOT EXISTS referral_visit_events (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(), visitor_hash TEXT NOT NULL,
+        partner_id UUID NOT NULL REFERENCES referral_partners(id), clicked_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`)
+      await pool.query(`CREATE TABLE IF NOT EXISTS referral_attributions (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        partner_id UUID NOT NULL REFERENCES referral_partners(id), attached_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`)
+      await pool.query(`CREATE TABLE IF NOT EXISTS referral_commissions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(), partner_id UUID NOT NULL REFERENCES referral_partners(id),
+        user_id UUID NOT NULL REFERENCES users(id), payment_id UUID NOT NULL UNIQUE REFERENCES payments(id),
+        gross_minor INTEGER NOT NULL CHECK (gross_minor >= 0), commission_minor INTEGER NOT NULL CHECK (commission_minor >= 0),
+        payout_id UUID, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`)
+      await pool.query(`CREATE TABLE IF NOT EXISTS referral_payouts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(), partner_id UUID NOT NULL REFERENCES referral_partners(id),
+        amount_minor INTEGER NOT NULL CHECK (amount_minor > 0), paid_at TIMESTAMPTZ NOT NULL DEFAULT now(), note TEXT
+      )`)
+      await pool.query('CREATE INDEX IF NOT EXISTS referral_visitors_expiry_idx ON referral_visitors (expires_at)')
+      await pool.query('CREATE INDEX IF NOT EXISTS referral_visit_events_partner_idx ON referral_visit_events (partner_id, clicked_at)')
+      await pool.query('CREATE INDEX IF NOT EXISTS referral_commissions_partner_idx ON referral_commissions (partner_id, created_at)')
+    })().catch((error) => { referralTablesReady = undefined; throw error })
+  }
+  return referralTablesReady
+}
 const getConsentPopupSetting = async () => {
   await ensureSettingsTable()
   const result = await pool.query(`SELECT value FROM app_settings WHERE key='consent_popup_enabled'`)
@@ -71,13 +110,33 @@ const paymentPlans = {
 }
 const sessionUser = async (req) => { const match = req.headers.cookie?.match(new RegExp(`${cookieName}=([^;]+)`)); if (!match) return null; const result = await pool.query("SELECT u.id, u.email, s.expires_at, CASE WHEN sub.status='active' AND (sub.ends_at IS NULL OR sub.ends_at > now()) THEN 'active' WHEN sub.status='active' THEN 'expired' ELSE COALESCE(sub.status, 'inactive') END AS subscription_status FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN subscriptions sub ON sub.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at > now()", [tokenHash(match[1])]); return result.rows[0] || null }
 const safeEqual = (left, right) => { const a = Buffer.from(String(left)); const b = Buffer.from(String(right)); return a.length === b.length && crypto.timingSafeEqual(a, b) }
-const adminSession = (req) => { const match = req.headers.cookie?.match(new RegExp(`${adminCookieName}=([^;]+)`)); if (!match) return false; const key = tokenHash(match[1]); const expiresAt = adminSessions.get(key); if (!expiresAt || expiresAt <= Date.now()) { adminSessions.delete(key); return false } return true }
-const setAdminSession = (res) => { const token = crypto.randomBytes(32).toString('base64url'); adminSessions.set(tokenHash(token), Date.now() + 8 * 60 * 60 * 1000); res.setHeader('set-cookie', `${adminCookieName}=${token}; Path=/api/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`) }
+const adminPrincipal = (req) => { const match = req.headers.cookie?.match(new RegExp(`${adminCookieName}=([^;]+)`)); if (!match) return null; const key = tokenHash(match[1]); const session = adminSessions.get(key); if (!session || session.expiresAt <= Date.now()) { adminSessions.delete(key); return null } return session.principal }
+const isOwner = (req) => adminPrincipal(req)?.role === 'owner'
+const adminSession = (req) => isOwner(req)
+const setAdminSession = (res, principal) => { const token = crypto.randomBytes(32).toString('base64url'); adminSessions.set(tokenHash(token), { expiresAt: Date.now() + 8 * 60 * 60 * 1000, principal }); res.setHeader('set-cookie', `${adminCookieName}=${token}; Path=/api/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`) }
 const setSession = async (res, userId) => { const token = crypto.randomBytes(32).toString('base64url'); await pool.query('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval \'30 days\')', [tokenHash(token), userId]); res.setHeader('set-cookie', `${cookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`) }
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': process.env.PUBLIC_ORIGIN || '*', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'content-type' }); return res.end() }
     if (req.url === '/api/health') return json(res, 200, { ok: true })
+    if (req.url === '/api/referral/visit' && req.method === 'POST') {
+      const input = await body(req)
+      const code = String(input.code || '').trim()
+      if (!/^[a-f0-9]{12}$/i.test(code)) return json(res, 400, { error: 'Некорректная реферальная ссылка.' })
+      await ensureReferralTables()
+      const partner = await pool.query('SELECT id FROM referral_partners WHERE referral_code=$1 AND active=TRUE', [code])
+      if (!partner.rows[0]) return json(res, 404, { error: 'Реферальная ссылка не найдена.' })
+      const match = req.headers.cookie?.match(/(?:^|;\s*)ballplay_referral=([^;]+)/)
+      const visitorToken = match?.[1] || crypto.randomBytes(32).toString('base64url')
+      const visitorHash = tokenHash(visitorToken)
+      await pool.query(`WITH counted AS (
+        INSERT INTO referral_visitors(visitor_hash,partner_id,expires_at) VALUES($1,$2,now()+interval '30 days')
+        ON CONFLICT(visitor_hash) DO UPDATE SET partner_id=EXCLUDED.partner_id,first_seen_at=now(),expires_at=EXCLUDED.expires_at
+        WHERE referral_visitors.expires_at <= now() RETURNING visitor_hash,partner_id
+      ) INSERT INTO referral_visit_events(visitor_hash,partner_id) SELECT visitor_hash,partner_id FROM counted`, [visitorHash, partner.rows[0].id])
+      if (!match) res.setHeader('set-cookie', `ballplay_referral=${visitorToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`)
+      return json(res, 202, { ok: true })
+    }
     if (req.url === '/api/analytics/homepage' && req.method === 'POST') {
       await ensureHomepageViewsTable()
       await pool.query(`INSERT INTO homepage_daily_views(view_date,views) VALUES(CURRENT_DATE,1) ON CONFLICT(view_date) DO UPDATE SET views=homepage_daily_views.views+1`)
@@ -86,16 +145,95 @@ const server = http.createServer(async (req, res) => {
     if (req.url === '/api/public/settings' && req.method === 'GET') return json(res, 200, { consentPopupEnabled: await getConsentPopupSetting() })
     if (req.url === '/api/public/payment-config' && req.method === 'GET') return json(res, 200, { publicId: process.env.CLOUDPAYMENTS_PUBLIC_ID || '', enabled: Boolean(process.env.CLOUDPAYMENTS_PUBLIC_ID && process.env.CLOUDPAYMENTS_API_SECRET) })
     if (req.url === '/api/admin/login' && req.method === 'POST') {
-      if ((!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) && !process.env.ADMIN_USERS) return json(res, 503, { error: 'Администратор не настроен на сервере.' })
       const ip = req.socket.remoteAddress || 'unknown'; const now = Date.now(); const recent = (adminLoginAttempts.get(ip) || []).filter((time) => now - time < 15 * 60 * 1000)
       if (recent.length >= 8) return json(res, 429, { error: 'Слишком много попыток. Попробуйте позже.' })
       recent.push(now); adminLoginAttempts.set(ip, recent)
       const input = await body(req)
-      if (!(await adminCredentialsMatch(input.username || '', input.password || '', process.env))) return json(res, 401, { error: 'Неверный логин или пароль.' })
-      adminLoginAttempts.delete(ip); setAdminSession(res); return json(res, 200, { ok: true })
+      if (await adminCredentialsMatch(input.username || '', input.password || '', process.env)) {
+        adminLoginAttempts.delete(ip); setAdminSession(res, { role: 'owner' }); return json(res, 200, { ok: true, role: 'owner' })
+      }
+      await ensureReferralTables()
+      const partner = await pool.query('SELECT id,username,display_name,password_hash FROM referral_partners WHERE username=$1 AND active=TRUE', [String(input.username || '')])
+      if (partner.rows[0] && await passwordMatches(String(input.password || ''), partner.rows[0].password_hash)) {
+        adminLoginAttempts.delete(ip)
+        setAdminSession(res, { role: 'partner', partnerId: partner.rows[0].id, username: partner.rows[0].username, displayName: partner.rows[0].display_name })
+        return json(res, 200, { ok: true, role: 'partner', displayName: partner.rows[0].display_name })
+      }
+      if ((!process.env.ADMIN_USERNAME || !process.env.ADMIN_PASSWORD) && !process.env.ADMIN_USERS) return json(res, 503, { error: 'Администратор не настроен на сервере.' })
+      return json(res, 401, { error: 'Неверный логин или пароль.' })
     }
     if (req.url === '/api/admin/logout' && req.method === 'POST') { const match = req.headers.cookie?.match(new RegExp(`${adminCookieName}=([^;]+)`)); if (match) adminSessions.delete(tokenHash(match[1])); res.setHeader('set-cookie', `${adminCookieName}=; Path=/api/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0`); return json(res, 200, { ok: true }) }
-    if (req.url === '/api/admin/me' && req.method === 'GET') return adminSession(req) ? json(res, 200, { ok: true }) : json(res, 401, { error: 'Не авторизован.' })
+    if (req.url === '/api/admin/me' && req.method === 'GET') { const principal = adminPrincipal(req); return principal ? json(res, 200, { ok: true, role: principal.role, displayName: principal.displayName }) : json(res, 401, { error: 'Не авторизован.' }) }
+    if (req.url === '/api/admin/referral/dashboard' && req.method === 'GET') {
+      const principal = adminPrincipal(req)
+      if (!principal) return json(res, 401, { error: 'Не авторизован.' })
+      if (principal.role !== 'partner') return json(res, 403, { error: 'Этот раздел предназначен для партнёров.' })
+      await ensureReferralTables()
+      const result = await pool.query(`SELECT rp.display_name,rp.referral_code,
+        (SELECT COUNT(*)::bigint FROM referral_visit_events rv WHERE rv.partner_id=rp.id) AS visits,
+        (SELECT COUNT(*)::bigint FROM referral_attributions ra WHERE ra.partner_id=rp.id) AS registrations,
+        COUNT(rc.id)::bigint AS renewals,(SELECT COUNT(DISTINCT ra.user_id)::bigint FROM referral_attributions ra JOIN payments p ON p.user_id=ra.user_id AND p.status='paid' WHERE ra.partner_id=rp.id) AS paying_customers, COALESCE(SUM(rc.gross_minor),0)::bigint AS gross_minor,
+        COALESCE(SUM(rc.commission_minor),0)::bigint AS earned_minor,
+        COALESCE(SUM(rc.commission_minor) FILTER (WHERE rc.payout_id IS NOT NULL),0)::bigint AS paid_minor,
+        COALESCE(SUM(rc.commission_minor) FILTER (WHERE rc.payout_id IS NULL),0)::bigint AS due_minor
+        FROM referral_partners rp LEFT JOIN referral_commissions rc ON rc.partner_id=rp.id
+        WHERE rp.id=$1 AND rp.active=TRUE GROUP BY rp.id`, [principal.partnerId])
+      if (!result.rows[0]) return json(res, 404, { error: 'Партнёр не найден.' })
+      const base = (process.env.PUBLIC_ORIGIN || 'https://ballplay.ru').replace(/\/$/, '')
+      return json(res, 200, { ...result.rows[0], referralUrl: `${base}/?ref=${encodeURIComponent(result.rows[0].referral_code)}` })
+    }
+    if (req.url === '/api/admin/referrals' && req.method === 'GET') {
+      if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
+      await ensureReferralTables()
+      const result = await pool.query(`SELECT rp.id,rp.username,rp.display_name,rp.referral_code,rp.active,rp.created_at,
+        (SELECT COUNT(*)::bigint FROM referral_visit_events rv WHERE rv.partner_id=rp.id) AS visits,
+        (SELECT COUNT(*)::bigint FROM referral_attributions ra WHERE ra.partner_id=rp.id) AS registrations,
+        COUNT(rc.id)::bigint AS renewals,(SELECT COUNT(DISTINCT ra.user_id)::bigint FROM referral_attributions ra JOIN payments p ON p.user_id=ra.user_id AND p.status='paid' WHERE ra.partner_id=rp.id) AS paying_customers,COALESCE(SUM(rc.commission_minor),0)::bigint AS earned_minor,
+        COALESCE(SUM(rc.commission_minor) FILTER (WHERE rc.payout_id IS NOT NULL),0)::bigint AS paid_minor,
+        COALESCE(SUM(rc.commission_minor) FILTER (WHERE rc.payout_id IS NULL),0)::bigint AS due_minor
+        FROM referral_partners rp LEFT JOIN referral_commissions rc ON rc.partner_id=rp.id GROUP BY rp.id ORDER BY rp.created_at DESC`)
+      return json(res, 200, { partners: result.rows })
+    }
+    if (req.url === '/api/admin/referrals' && req.method === 'POST') {
+      if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
+      await ensureReferralTables()
+      const input = await body(req)
+      const username = String(input.username || '').trim()
+      const displayName = String(input.displayName || '').trim()
+      const password = String(input.password || '')
+      if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(username) || displayName.length < 2 || password.length < 12) return json(res, 400, { error: 'Укажите логин (3–40 символов), имя и пароль не короче 12 символов.' })
+      const referralCode = crypto.randomBytes(6).toString('hex')
+      try {
+        const result = await pool.query('INSERT INTO referral_partners(id,username,password_hash,referral_code,display_name) VALUES($1,$2,$3,$4,$5) RETURNING id,username,display_name,referral_code,active,created_at', [crypto.randomUUID(), username, await passwordHash(password), referralCode, displayName])
+        return json(res, 201, { partner: result.rows[0] })
+      } catch (error) { if (error.code === '23505') return json(res, 409, { error: 'Такой логин уже существует.' }); throw error }
+    }
+    const referralToggleMatch = req.url?.match(/^\/api\/admin\/referrals\/([0-9a-f-]+)$/i)
+    if (referralToggleMatch && req.method === 'PATCH') {
+      if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
+      await ensureReferralTables()
+      const input = await body(req)
+      if (typeof input.active !== 'boolean') return json(res, 400, { error: 'Ожидалось логическое значение active.' })
+      const result = await pool.query('UPDATE referral_partners SET active=$2 WHERE id=$1 RETURNING active', [referralToggleMatch[1], input.active])
+      return result.rowCount ? json(res, 200, { active: result.rows[0].active }) : json(res, 404, { error: 'Партнёр не найден.' })
+    }
+    const referralPayoutMatch = req.url?.match(/^\/api\/admin\/referrals\/([0-9a-f-]+)\/payout$/i)
+    if (referralPayoutMatch && req.method === 'POST') {
+      if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
+      await ensureReferralTables()
+      const input = await body(req)
+      const client = await pool.connect()
+      try {
+        await client.query('BEGIN')
+        const pending = await client.query('SELECT id,commission_minor FROM referral_commissions WHERE partner_id=$1 AND payout_id IS NULL FOR UPDATE', [referralPayoutMatch[1]])
+        const amountMinor = pending.rows.reduce((sum, row) => sum + Number(row.commission_minor), 0)
+        if (amountMinor <= 0) { await client.query('ROLLBACK'); return json(res, 400, { error: 'Нет начислений к выплате.' }) }
+        const payout = await client.query('INSERT INTO referral_payouts(partner_id,amount_minor,note) VALUES($1,$2,$3) RETURNING id,amount_minor,paid_at', [referralPayoutMatch[1], amountMinor, String(input.note || '').slice(0, 500)])
+        await client.query('UPDATE referral_commissions SET payout_id=$2 WHERE partner_id=$1 AND payout_id IS NULL', [referralPayoutMatch[1], payout.rows[0].id])
+        await client.query('COMMIT')
+        return json(res, 200, { payout: payout.rows[0] })
+      } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error } finally { client.release() }
+    }
     if (req.url === '/api/admin/analytics/homepage' && req.method === 'GET') {
       if (!adminSession(req)) return json(res, 401, { error: 'Не авторизован.' })
       await ensureHomepageViewsTable()
@@ -147,7 +285,25 @@ const server = http.createServer(async (req, res) => {
         return true
       } catch (error) { await client.query('ROLLBACK').catch(() => undefined); throw error } finally { client.release() }
     }
-    if (req.url === '/api/auth/register' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const password = String(input.password || ''); if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return json(res, 400, { error: 'Введите корректный e-mail и пароль не короче 8 символов.' }); const id = crypto.randomUUID(); const hash = await passwordHash(password); try { await pool.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)', [id, email, hash]); await pool.query('INSERT INTO subscriptions(user_id) VALUES($1)', [id]); const claimed = await claimInitialPayment(id, input.invoiceId); await setSession(res, id); return json(res, 201, { user: { id, email }, subscriptionStatus: claimed ? 'active' : 'inactive' }) } catch (error) { if (error.code === '23505') return json(res, 409, { error: 'Такой e-mail уже зарегистрирован.' }); throw error } }
+    if (req.url === '/api/auth/register' && req.method === 'POST') {
+      const input = await body(req)
+      const email = String(input.email || '').trim().toLowerCase()
+      const password = String(input.password || '')
+      if (!/^\S+@\S+\.\S+$/.test(email) || password.length < 8) return json(res, 400, { error: 'Введите корректный e-mail и пароль не короче 8 символов.' })
+      const id = crypto.randomUUID()
+      const hash = await passwordHash(password)
+      try {
+        await ensureReferralTables()
+        await pool.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)', [id, email, hash])
+        await pool.query('INSERT INTO subscriptions(user_id) VALUES($1)', [id])
+        const referralCookie = req.headers.cookie?.match(/(?:^|;\s*)ballplay_referral=([^;]+)/)?.[1]
+        if (referralCookie) await pool.query(`INSERT INTO referral_attributions(user_id,partner_id) SELECT $1,partner_id FROM referral_visitors WHERE visitor_hash=$2 AND expires_at > now() LIMIT 1 ON CONFLICT(user_id) DO NOTHING`, [id, tokenHash(referralCookie)])
+        const claimed = await claimInitialPayment(id, input.invoiceId)
+        await setSession(res, id)
+        if (referralCookie) res.setHeader('set-cookie', [res.getHeader('set-cookie'), 'ballplay_referral=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'])
+        return json(res, 201, { user: { id, email }, subscriptionStatus: claimed ? 'active' : 'inactive' })
+      } catch (error) { if (error.code === '23505') return json(res, 409, { error: 'Такой e-mail уже зарегистрирован.' }); throw error }
+    }
     if (req.url === '/api/auth/login' && req.method === 'POST') { const input = await body(req); const email = String(input.email || '').trim().toLowerCase(); const result = await pool.query('SELECT id,email,password_hash FROM users WHERE email=$1', [email]); if (!result.rows[0] || !(await passwordMatches(String(input.password || ''), result.rows[0].password_hash))) return json(res, 401, { error: 'Неверный e-mail или пароль.' }); await claimInitialPayment(result.rows[0].id, input.invoiceId); await setSession(res, result.rows[0].id); const subscription = await pool.query('SELECT COALESCE(status, \'inactive\') AS status FROM subscriptions WHERE user_id=$1', [result.rows[0].id]); return json(res, 200, { user: { id: result.rows[0].id, email }, subscriptionStatus: subscription.rows[0]?.status || 'inactive' }) }
     if (req.url === '/api/auth/me' && req.method === 'GET') { const user = await sessionUser(req); return user ? json(res, 200, { user: { id: user.id, email: user.email }, subscriptionStatus: user.subscription_status }) : json(res, 401, { error: 'Не авторизован.' }) }
     if (req.url === '/api/payment/intent' && req.method === 'POST') {
@@ -252,6 +408,10 @@ const server = http.createServer(async (req, res) => {
             await client.query('ROLLBACK'); return json(res, 400, { code: 13, message: 'Recurring payment does not match active plan' })
           }
           await client.query(`UPDATE subscriptions SET status='active',ends_at=GREATEST(COALESCE(ends_at,now()),now())+($2 * interval '1 day'),next_charge_at=GREATEST(COALESCE(ends_at,now()),now())+($2 * interval '1 day'),charge_attempt_at=NULL,updated_at=now() WHERE user_id=$1`, [accountId, plan.period])
+          await ensureReferralTables()
+          await client.query(`INSERT INTO referral_commissions(partner_id,user_id,payment_id,gross_minor,commission_minor)
+            SELECT partner_id,$1,$2,$3,ROUND($3 * 0.5)::integer FROM referral_attributions
+            WHERE user_id=$1 AND $3 > 0 ON CONFLICT(payment_id) DO NOTHING`, [accountId, payment.id, payment.amount_minor])
         }
         await client.query('COMMIT')
         return json(res, 200, { code: 0 })
